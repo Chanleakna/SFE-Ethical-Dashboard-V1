@@ -65,7 +65,7 @@ const heatFg = (p) => {
   return "#991b1b";
 };
 
-function App() {
+export default function App() {
   const [user, setUser] = useState(null);
   const [raw, setRaw] = useState(null);
   const [error, setError] = useState(null);
