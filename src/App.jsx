@@ -1997,12 +1997,9 @@ function Dashboard({ user, raw, onLogout }) {
                 return { actual: Math.round(actual), target: Math.round(target) };
               };
 
-              // Render a heatmap cell
               const Cell = ({ actual, target }) => {
                 if (actual === 0 && target === 0) {
-                  return (
-                    <td style={{...tdStyleR, padding:"4px 4px", color:"#d1d5db", fontSize:9, background:"#fafafa"}}>—</td>
-                  );
+                  return <td style={{...tdStyleR, padding:"4px 4px", color:"#d1d5db", fontSize:9, background:"#fafafa"}}>—</td>;
                 }
                 const p = pct(actual, target);
                 const bg = target > 0 ? heatBg(p) : "#f3f4f6";
@@ -2025,89 +2022,79 @@ function Dashboard({ user, raw, onLogout }) {
               };
 
               return HEATMAP_KPIS.map(kpi => {
-                // Build FLM table: rows = FLMs, cols = months
-                const flmRows = (RAW.flms || []).map(f => {
+                // Filter FLMs by current filter
+                const flmList = flm === "All" ? (RAW.flms || []) : [flm];
+
+                // Build FLM-level rows
+                const flmRows = flmList.map(f => {
                   const cells = MONTH_NAMES.map((mLabel, idx) => {
                     return { mLabel, ...compute(kpi.id, idx + 1, null, f) };
                   });
-                  return { flm: f, cells };
+                  // Get SRs under this FLM (only those with data for this KPI)
+                  const flmSrs = (RAW.srs || [])
+                    .filter(s => s.flm === f)
+                    .map(s => {
+                      const srCells = MONTH_NAMES.map((mLabel, idx) => {
+                        return { mLabel, ...compute(kpi.id, idx + 1, s.code, null) };
+                      });
+                      return { sr: s, cells: srCells };
+                    })
+                    .filter(r => r.cells.some(c => c.actual > 0 || c.target > 0));
+                  return { flm: f, cells, srs: flmSrs };
                 });
-
-                // Build SR table: rows = SRs, cols = months  
-                const srRows = (RAW.srs || []).map(s => {
-                  const cells = MONTH_NAMES.map((mLabel, idx) => {
-                    return { mLabel, ...compute(kpi.id, idx + 1, s.code, null) };
-                  });
-                  return { sr: s, cells };
-                });
-
-                // Filter SRs to only those with any data
-                const srWithData = srRows.filter(r => r.cells.some(c => c.actual > 0 || c.target > 0));
-
-                // Filter FLMs by current filter
-                const flmDisplay = flm === "All" ? flmRows : flmRows.filter(r => r.flm === flm);
 
                 return (
-                  <Panel key={"heatmap-" + kpi.id} title={"🗺️ " + kpi.label + " — Heatmap by Month"}>
-                    {/* === FLM TABLE === */}
-                    <div style={{fontSize:11, fontWeight:600, color:"#374151", marginBottom:6}}>
-                      FLM × Month
-                    </div>
+                  <Panel key={"heatmap-" + kpi.id} title={"🗺️ " + kpi.label + " — Heatmap by Month (click ▸ to expand SRs)"}>
                     <div style={{overflowX:"auto"}}>
                       <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
                         <thead>
                           <tr style={{background:"#f9fafb"}}>
-                            <th style={{...thStyle, position:"sticky", left:0, background:"#f9fafb", zIndex:1, minWidth:120}}>FLM</th>
+                            <th style={{...thStyle, position:"sticky", left:0, background:"#f9fafb", zIndex:1, minWidth:170}}>FLM / SR</th>
                             {MONTH_NAMES.map(m => (
                               <th key={m} style={{...thStyleR, fontSize:9, minWidth:70}}>{m}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {flmDisplay.map(r => (
-                            <tr key={r.flm} style={{borderTop:"1px solid #f3f4f6"}}>
-                              <td style={{...tdStyle, position:"sticky", left:0, background:"#fff", zIndex:1, fontWeight:600, fontSize:11}}>
-                                {r.flm}
-                              </td>
-                              {r.cells.map((c, i) => (
-                                <Cell key={i} actual={c.actual} target={c.target} />
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* === SR TABLE === */}
-                    <div style={{fontSize:11, fontWeight:600, color:"#374151", marginTop:14, marginBottom:6}}>
-                      SR × Month ({srWithData.length} SRs with data)
-                    </div>
-                    <div style={{overflowX:"auto", maxHeight:400, overflowY:"auto"}}>
-                      <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
-                        <thead>
-                          <tr style={{background:"#f9fafb", position:"sticky", top:0, zIndex:2}}>
-                            <th style={{...thStyle, position:"sticky", left:0, background:"#f9fafb", zIndex:3, minWidth:170}}>SR / FLM</th>
-                            {MONTH_NAMES.map(m => (
-                              <th key={m} style={{...thStyleR, fontSize:9, minWidth:70, background:"#f9fafb"}}>{m}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {srWithData
-                            .filter(r => flm === "All" || r.sr.flm === flm)
-                            .map(r => (
-                              <tr key={r.sr.code} style={{borderTop:"1px solid #f3f4f6"}}>
-                                <td style={{...tdStyle, position:"sticky", left:0, background:"#fff", zIndex:1, padding:"4px 8px"}}>
-                                  <div style={{fontSize:11, fontWeight:600}}>{r.sr.name}</div>
-                                  <div style={{fontSize:9, color:"#9ca3af"}}>{r.sr.flm}</div>
+                          {flmRows.map(r => (
+                            <React.Fragment key={r.flm}>
+                              {/* FLM row (clickable) */}
+                              <tr
+                                onClick={() => setExpanded(e => ({ ...e, ["hm_" + kpi.id + "_" + r.flm]: !e["hm_" + kpi.id + "_" + r.flm] }))}
+                                style={{borderTop:"2px solid #e5e7eb", background:"#fafbfc", cursor:"pointer"}}
+                              >
+                                <td style={{...tdStyle, position:"sticky", left:0, background:"#fafbfc", zIndex:1, fontWeight:700, fontSize:11}}>
+                                  <span style={{color:"#6b7280", marginRight:6}}>
+                                    {expanded["hm_" + kpi.id + "_" + r.flm] ? "▾" : "▸"}
+                                  </span>
+                                  {r.flm}
+                                  <span style={{fontSize:9, color:"#9ca3af", marginLeft:6, fontWeight:400}}>
+                                    {r.srs.length} SRs
+                                  </span>
                                 </td>
                                 {r.cells.map((c, i) => (
                                   <Cell key={i} actual={c.actual} target={c.target} />
                                 ))}
                               </tr>
-                            ))}
+                              {/* SR rows (only when FLM expanded) */}
+                              {expanded["hm_" + kpi.id + "_" + r.flm] && r.srs.map(srRow => (
+                                <tr key={srRow.sr.code} style={{borderTop:"1px solid #f3f4f6"}}>
+                                  <td style={{...tdStyle, position:"sticky", left:0, background:"#fff", zIndex:1, padding:"4px 8px 4px 32px", fontSize:11}}>
+                                    <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:9, marginRight:6}}>{srRow.sr.code}</span>
+                                    {srRow.sr.name}
+                                  </td>
+                                  {srRow.cells.map((c, i) => (
+                                    <Cell key={i} actual={c.actual} target={c.target} />
+                                  ))}
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))}
                         </tbody>
                       </table>
+                    </div>
+                    <div style={{fontSize:9, color:"#9ca3af", marginTop:8}}>
+                      Each cell: actual/target (top), % (bottom). Click any FLM row to expand its SRs.
                     </div>
                   </Panel>
                 );
