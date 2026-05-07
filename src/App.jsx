@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, LabelList
 } from "recharts";
 
 // === CONFIGURE THIS LINE ===
@@ -556,6 +556,7 @@ function Dashboard({ user, raw, onLogout }) {
         <TabBtn label="Active Cust." v="active" cur={tab} on={setTab} />
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
         <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
+          <TabBtn label="📈 Trend" v="trend" cur={tab} on={setTab} />
       </div>
 
       {/* ============ SUMMARY ============ */}
@@ -1664,6 +1665,275 @@ function Dashboard({ user, raw, onLogout }) {
                   })}
                 </tbody>
               </table>
+            </Panel>
+          </>
+        );
+      })()}
+
+      {tab === "trend" && (() => {
+        // Compute monthly data per KPI
+        // KPIs to show: Sales (total $), Active 3-mo (count), Shop Around ($), New Listing (count), NU (count)
+        const TREND_KPIS = [
+          { id: "sales",   label: "Total Sales",      color: "#2563eb", fmt: (v) => fmt(v) },
+          { id: "active",  label: "Active 3-mo Cust", color: "#8b5cf6", fmt: (v) => v.toString() },
+          { id: "shop",    label: "Shop Around",      color: "#0ea5e9", fmt: (v) => fmt(v) },
+          { id: "new",     label: "New Listing",      color: "#ec4899", fmt: (v) => v.toString() },
+          { id: "nu",      label: "NU",               color: "#f59e0b", fmt: (v) => v.toString() },
+        ];
+
+        // For each month, compute actual + target for each KPI
+        // Also break down per FLM and per SR
+        const flmList = flm === "All" ? RAW.flms : [flm];
+        const srPool = sr === "All" 
+          ? RAW.srs.filter(s => flmList.includes(s.flm))
+          : RAW.srs.filter(s => s.code === Number(sr));
+
+        // Build data structures for each KPI
+        const compute = (kpiId, level) => {
+          // level: "topline" | "flm" | "sr"
+          // returns: array of {month, monthLabel, [seriesName]: actual, [seriesName + " tgt"]: target}
+          const data = MONTH_NAMES.map((mLabel, idx) => {
+            const m = idx + 1;
+            const row = { month: mLabel };
+            
+            const computeForScope = (srCodes, flmNames) => {
+              let actual = 0, target = 0;
+              
+              if (kpiId === "sales") {
+                // Sum all KPI sales for these SRs/FLMs in this month
+                RAW.actuals.forEach(r => {
+                  if (r.m !== m) return;
+                  if (srCodes && !srCodes.includes(r.sr)) return;
+                  if (flmNames && !flmNames.includes(r.f)) return;
+                  actual += r.v;
+                });
+                RAW.targets.forEach(r => {
+                  if (r.m !== m) return;
+                  if (srCodes && !srCodes.includes(r.sr)) return;
+                  if (flmNames && !flmNames.includes(r.f)) return;
+                  target += r.t;
+                });
+              } else if (kpiId === "active") {
+                const ab = RAW.activeByMonth?.[m] || [];
+                const at = RAW.activeTargetByMonth?.[m];
+                ab.forEach(r => {
+                  if (srCodes && !srCodes.includes(r.sr)) return;
+                  if (flmNames && !flmNames.includes(r.f)) return;
+                  actual += 1;
+                });
+                if (at) {
+                  if (srCodes) {
+                    srCodes.forEach(s => target += (at.bySr[s] || 0));
+                  } else if (flmNames) {
+                    flmNames.forEach(f => target += (at.byFlm[f] || 0));
+                  } else {
+                    Object.values(at.bySr).forEach(v => target += v);
+                  }
+                }
+              } else if (kpiId === "shop") {
+                const sb = RAW.shopByMonth?.[m] || [];
+                sb.forEach(r => {
+                  if (srCodes && !srCodes.includes(r.sr)) return;
+                  if (flmNames && !flmNames.includes(r.f)) return;
+                  actual += r.v || 0;
+                  target += r.t || 0;
+                });
+              } else if (kpiId === "new") {
+                const nb = RAW.newByMonth?.[m] || [];
+                const nt = RAW.newTargetByMonth?.[m];
+                nb.forEach(r => {
+                  if (srCodes && !srCodes.includes(r.sr)) return;
+                  if (flmNames && !flmNames.includes(r.f)) return;
+                  actual += 1;
+                });
+                if (nt) {
+                  if (srCodes) {
+                    srCodes.forEach(s => target += (nt.bySr[s] || 0));
+                  } else if (flmNames) {
+                    flmNames.forEach(f => target += (nt.byFlm[f] || 0));
+                  } else {
+                    Object.values(nt.bySr).forEach(v => target += v);
+                  }
+                }
+              } else if (kpiId === "nu") {
+                const lt = RAW.leadTargetByMonth?.[m];
+                const la = RAW.leadActualByMonth?.[m];
+                if (lt) {
+                  if (srCodes) {
+                    srCodes.forEach(s => target += (lt.bySr[s] || 0));
+                  } else if (flmNames) {
+                    flmNames.forEach(f => target += (lt.byFlm[f] || 0));
+                  } else {
+                    Object.values(lt.bySr).forEach(v => target += v);
+                  }
+                }
+                if (la) {
+                  if (srCodes) {
+                    srCodes.forEach(s => actual += (la.bySr[s] || 0));
+                  } else if (flmNames) {
+                    flmNames.forEach(f => actual += (la.byFlm[f] || 0));
+                  } else {
+                    Object.values(la.bySr).forEach(v => actual += v);
+                  }
+                }
+              }
+              return { actual, target };
+            };
+
+            if (level === "topline") {
+              const { actual, target } = computeForScope(null, flmList);
+              row["Actual"] = actual;
+              row["Target"] = target;
+            } else if (level === "flm") {
+              flmList.forEach(f => {
+                const { actual, target } = computeForScope(null, [f]);
+                row[f] = actual;
+                row[f + " tgt"] = target;
+              });
+            } else if (level === "sr") {
+              srPool.forEach(s => {
+                const { actual } = computeForScope([s.code], null);
+                row[s.name] = actual;
+              });
+            }
+            return row;
+          });
+          return data;
+        };
+
+        // Compute trend direction (last 3 months % change)
+        const trendDir = (data, key) => {
+          const vals = data.map(d => d[key] || 0).filter((_, i, a) => i >= a.length - 3);
+          if (vals.length < 2) return null;
+          const first = vals[0];
+          const last = vals[vals.length - 1];
+          if (first === 0) return last > 0 ? "↗" : "—";
+          const change = (last - first) / first;
+          if (change > 0.05) return "↗ improving";
+          if (change < -0.05) return "↘ declining";
+          return "→ stable";
+        };
+
+        return (
+          <>
+            <Panel title="📈 Trend Analysis — Year-to-Date 2026">
+              <div style={{fontSize:11, color:"#6b7280", marginBottom:10}}>
+                Showing 5 KPIs across 3 levels (Topline → FLM → SR). Filters above apply.
+                Number labels shown on each data point. Months with no data omitted.
+              </div>
+              
+              {TREND_KPIS.map(kpi => {
+                const toplineData = compute(kpi.id, "topline");
+                const flmData = compute(kpi.id, "flm");
+                
+                // Filter out months with both 0 actual and 0 target
+                const hasData = toplineData.some(d => (d.Actual || 0) > 0 || (d.Target || 0) > 0);
+                if (!hasData) return null;
+                
+                const trend = trendDir(toplineData, "Actual");
+                const trendColor = trend?.includes("improving") ? "#059669" 
+                  : trend?.includes("declining") ? "#dc2626" : "#6b7280";
+                
+                return (
+                  <div key={kpi.id} style={{marginBottom:24, padding:12, border:"1px solid #e5e7eb", borderRadius:8, background:"#fff"}}>
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:14, fontWeight:700, color:kpi.color}}>{kpi.label}</div>
+                        <div style={{fontSize:10, color:"#9ca3af"}}>Topline · Actual vs Target by month</div>
+                      </div>
+                      {trend && (
+                        <div style={{fontSize:12, fontWeight:600, color:trendColor}}>
+                          {trend}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* TOPLINE chart */}
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={toplineData} margin={{top:20, right:20, left:0, bottom:5}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="month" tick={{fontSize:10, fill:"#6b7280"}} />
+                        <YAxis tick={{fontSize:10, fill:"#6b7280"}} tickFormatter={(v) => v >= 1000 ? (v/1000).toFixed(0)+"K" : v} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{fontSize:11}} />
+                        <Bar dataKey="Target" fill="#e5e7eb" name="Target">
+                          <LabelList dataKey="Target" position="top" style={{fontSize:9, fill:"#9ca3af"}} 
+                            formatter={(v) => v ? (v >= 1000 ? (v/1000).toFixed(0)+"K" : v) : ""} />
+                        </Bar>
+                        <Bar dataKey="Actual" fill={kpi.color} name="Actual">
+                          <LabelList dataKey="Actual" position="top" style={{fontSize:9, fill:kpi.color, fontWeight:700}} 
+                            formatter={(v) => v ? (v >= 1000 ? (v/1000).toFixed(0)+"K" : v) : ""} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* FLM breakdown chart */}
+                    {flm === "All" && flmList.length > 1 && (
+                      <>
+                        <div style={{fontSize:11, fontWeight:600, color:"#374151", marginTop:14, marginBottom:6}}>
+                          Per FLM — Actual only
+                        </div>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <LineChart data={flmData} margin={{top:15, right:20, left:0, bottom:5}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                            <XAxis dataKey="month" tick={{fontSize:10, fill:"#6b7280"}} />
+                            <YAxis tick={{fontSize:10, fill:"#6b7280"}} tickFormatter={(v) => v >= 1000 ? (v/1000).toFixed(0)+"K" : v} />
+                            <Tooltip />
+                            <Legend wrapperStyle={{fontSize:10}} />
+                            {flmList.map((f, i) => {
+                              const colors = ["#2563eb","#dc2626","#059669","#f59e0b","#8b5cf6"];
+                              return (
+                                <Line key={f} type="monotone" dataKey={f} stroke={colors[i % 5]} strokeWidth={2}
+                                  dot={{r:3}}>
+                                  <LabelList dataKey={f} position="top" style={{fontSize:8, fill:colors[i % 5], fontWeight:600}} 
+                                    formatter={(v) => v ? (v >= 1000 ? (v/1000).toFixed(0)+"K" : v) : ""} />
+                                </Line>
+                              );
+                            })}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </>
+                    )}
+
+                    {/* Summary table */}
+                    <div style={{marginTop:14, fontSize:11, fontWeight:600, color:"#374151", marginBottom:6}}>
+                      Monthly Summary
+                    </div>
+                    <table style={{...tblStyle, fontSize:10}}>
+                      <thead><tr style={{background:"#f9fafb"}}>
+                        <th style={thStyle}>Month</th>
+                        <th style={thStyleR}>Actual</th>
+                        <th style={thStyleR}>Target</th>
+                        <th style={thStyleR}>%</th>
+                        <th style={thStyleR}>vs prior</th>
+                      </tr></thead>
+                      <tbody>
+                        {toplineData.map((d, i) => {
+                          const a = d.Actual || 0;
+                          const t = d.Target || 0;
+                          if (a === 0 && t === 0) return null;
+                          const p = pct(a, t);
+                          const prior = i > 0 ? (toplineData[i-1].Actual || 0) : 0;
+                          const change = prior > 0 ? ((a - prior) / prior * 100) : null;
+                          return (
+                            <tr key={d.month} style={{borderTop:"1px solid #f3f4f6"}}>
+                              <td style={tdStyle}>{d.month} 2026</td>
+                              <td style={{...tdStyleR, fontWeight:600}}>{kpi.fmt(a)}</td>
+                              <td style={{...tdStyleR, color:"#6b7280"}}>{t > 0 ? kpi.fmt(t) : "—"}</td>
+                              <td style={{...tdStyleR, fontWeight:700, color:t > 0 ? pctColor(p) : "#9ca3af"}}>
+                                {t > 0 ? p.toFixed(0) + "%" : "—"}
+                              </td>
+                              <td style={{...tdStyleR, fontSize:10, color: change > 0 ? "#059669" : change < 0 ? "#dc2626" : "#6b7280"}}>
+                                {change !== null ? (change > 0 ? "+" : "") + change.toFixed(0) + "%" : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
             </Panel>
           </>
         );
