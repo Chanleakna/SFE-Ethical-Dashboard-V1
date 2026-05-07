@@ -556,6 +556,7 @@ function Dashboard({ user, raw, onLogout }) {
         <TabBtn label="Active Cust." v="active" cur={tab} on={setTab} />
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
         <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
+          <TabBtn label="📈 Trend" v="trend" cur={tab} on={setTab} />
       </div>
 
       {/* ============ SUMMARY ============ */}
@@ -1669,7 +1670,462 @@ function Dashboard({ user, raw, onLogout }) {
         );
       })()}
 
-      
+      {tab === "trend" && (() => {
+        try {
+          const TREND_KPIS = [
+            { id: "sales",  label: "Total Sales",      color: "#2563eb" },
+            { id: "active", label: "Active 3-mo Cust", color: "#8b5cf6" },
+            { id: "shop",   label: "Shop Around",      color: "#0ea5e9" },
+            { id: "new",    label: "New Listing",      color: "#ec4899" },
+            { id: "nu",     label: "NU",               color: "#f59e0b" },
+          ];
+
+          const flmList = flm === "All" ? (RAW.flms || []) : [flm];
+
+          const computeMonth = (kpiId, m) => {
+            let actual = 0, target = 0;
+            try {
+              if (kpiId === "sales") {
+                (RAW.actuals || []).forEach(r => {
+                  if (r.m !== m) return;
+                  if (flm !== "All" && r.f !== flm) return;
+                  actual += r.v || 0;
+                });
+                (RAW.targets || []).forEach(r => {
+                  if (r.m !== m) return;
+                  if (flm !== "All" && r.f !== flm) return;
+                  target += r.t || 0;
+                });
+              } else if (kpiId === "active") {
+                const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || [];
+                ab.forEach(r => {
+                  if (flm !== "All" && r.f !== flm) return;
+                  actual += 1;
+                });
+                const at = RAW.activeTargetByMonth && RAW.activeTargetByMonth[m];
+                if (at) {
+                  if (flm !== "All") {
+                    target = (at.byFlm && at.byFlm[flm]) || 0;
+                  } else {
+                    Object.values(at.bySr || {}).forEach(v => target += v);
+                  }
+                }
+              } else if (kpiId === "shop") {
+                const sb = (RAW.shopByMonth && RAW.shopByMonth[m]) || [];
+                sb.forEach(r => {
+                  if (flm !== "All" && r.f !== flm) return;
+                  actual += r.v || 0;
+                  target += r.t || 0;
+                });
+              } else if (kpiId === "new") {
+                const nb = (RAW.newByMonth && RAW.newByMonth[m]) || [];
+                nb.forEach(r => {
+                  if (flm !== "All" && r.f !== flm) return;
+                  actual += 1;
+                });
+                const nt = RAW.newTargetByMonth && RAW.newTargetByMonth[m];
+                if (nt) {
+                  if (flm !== "All") {
+                    target = (nt.byFlm && nt.byFlm[flm]) || 0;
+                  } else {
+                    Object.values(nt.bySr || {}).forEach(v => target += v);
+                  }
+                }
+              } else if (kpiId === "nu") {
+                const lt = RAW.leadTargetByMonth && RAW.leadTargetByMonth[m];
+                const la = RAW.leadActualByMonth && RAW.leadActualByMonth[m];
+                if (lt) {
+                  if (flm !== "All") {
+                    target = (lt.byFlm && lt.byFlm[flm]) || 0;
+                  } else {
+                    Object.values(lt.bySr || {}).forEach(v => target += v);
+                  }
+                }
+                if (la) {
+                  if (flm !== "All") {
+                    actual = (la.byFlm && la.byFlm[flm]) || 0;
+                  } else {
+                    Object.values(la.bySr || {}).forEach(v => actual += v);
+                  }
+                }
+              }
+            } catch (e) {
+              // swallow per-month errors
+            }
+            return { actual: Math.round(actual), target: Math.round(target) };
+          };
+
+          // Build chart data per KPI
+          const buildKpiData = (kpiId) => {
+            return MONTH_NAMES.map((mLabel, idx) => {
+              const m = idx + 1;
+              const { actual, target } = computeMonth(kpiId, m);
+              return { month: mLabel, Actual: actual, Target: target };
+            });
+          };
+
+          const fmtVal = (v) => {
+            if (!v) return "0";
+            if (v >= 1000000) return (v/1000000).toFixed(1) + "M";
+            if (v >= 1000) return (v/1000).toFixed(1) + "K";
+            return v.toString();
+          };
+
+          const trendDirection = (data) => {
+            const filtered = data.filter(d => d.Actual > 0);
+            if (filtered.length < 2) return null;
+            const first = filtered[0].Actual;
+            const last = filtered[filtered.length - 1].Actual;
+            if (first === 0) return last > 0 ? "↗ improving" : "→ stable";
+            const change = (last - first) / first;
+            if (change > 0.05) return "↗ improving";
+            if (change < -0.05) return "↘ declining";
+            return "→ stable";
+          };
+
+          return (
+            <>
+            <Panel title="📈 Trend Analysis — 2026 Year-to-Date">
+              <div style={{fontSize:11, color:"#6b7280", marginBottom:14}}>
+                5 KPIs across 2026. FLM filter applies (currently: <strong>{flm}</strong>).
+                Months with no data show 0. Trend = direction of last few months with data.
+              </div>
+
+              {TREND_KPIS.map(kpi => {
+                const data = buildKpiData(kpi.id);
+                const hasData = data.some(d => d.Actual > 0 || d.Target > 0);
+                if (!hasData) return null;
+
+                const trend = trendDirection(data);
+                const trendColor = trend && trend.includes("improving") ? "#059669"
+                  : trend && trend.includes("declining") ? "#dc2626" : "#6b7280";
+
+                // Totals
+                const totalA = data.reduce((s, d) => s + d.Actual, 0);
+                const totalT = data.reduce((s, d) => s + d.Target, 0);
+
+                return (
+                  <div key={kpi.id} style={{
+                    marginBottom: 18, padding: 14,
+                    border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff"
+                  }}>
+                    {/* Header */}
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:14, fontWeight:700, color:kpi.color}}>{kpi.label}</div>
+                        <div style={{fontSize:10, color:"#9ca3af", marginTop:2}}>
+                          YTD: <strong>{fmtVal(totalA)}</strong> actual / <strong>{fmtVal(totalT)}</strong> target
+                          {totalT > 0 && (
+                            <span style={{marginLeft:6, color: pctColor(pct(totalA, totalT))}}>
+                              · {pct(totalA, totalT).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {trend && (
+                        <div style={{
+                          fontSize:11, fontWeight:700, color:trendColor,
+                          padding:"4px 10px", background:"#f9fafb", borderRadius:6,
+                          border:"1px solid " + trendColor + "33",
+                        }}>
+                          {trend}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bar chart with target + actual */}
+                    <div style={{height:240}}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data} margin={{top:25, right:15, left:0, bottom:5}}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                          <XAxis dataKey="month" tick={{fontSize:10, fill:"#6b7280"}} />
+                          <YAxis tick={{fontSize:10, fill:"#6b7280"}} tickFormatter={fmtVal} />
+                          <Tooltip formatter={(v) => fmtVal(v)} />
+                          <Legend wrapperStyle={{fontSize:11}} />
+                          <Bar dataKey="Target" fill="#d1d5db" name="Target" />
+                          <Bar dataKey="Actual" fill={kpi.color} name="Actual" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Monthly summary table */}
+                    <div style={{marginTop:14}}>
+                      <div style={{fontSize:11, fontWeight:600, color:"#374151", marginBottom:6}}>
+                        Monthly Detail
+                      </div>
+                      <table style={{...tblStyle, fontSize:10}}>
+                        <thead>
+                          <tr style={{background:"#f9fafb"}}>
+                            <th style={thStyle}>Month</th>
+                            <th style={thStyleR}>Actual</th>
+                            <th style={thStyleR}>Target</th>
+                            <th style={thStyleR}>%</th>
+                            <th style={thStyleR}>vs Prior</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.map((d, i) => {
+                            if (d.Actual === 0 && d.Target === 0) return null;
+                            const p = pct(d.Actual, d.Target);
+                            const prior = i > 0 ? data[i-1].Actual : 0;
+                            const change = prior > 0 ? ((d.Actual - prior) / prior * 100) : null;
+                            return (
+                              <tr key={d.month} style={{borderTop:"1px solid #f3f4f6"}}>
+                                <td style={tdStyle}>{d.month} 2026</td>
+                                <td style={{...tdStyleR, fontWeight:600}}>{fmtVal(d.Actual)}</td>
+                                <td style={{...tdStyleR, color:"#6b7280"}}>
+                                  {d.Target > 0 ? fmtVal(d.Target) : "—"}
+                                </td>
+                                <td style={{...tdStyleR, fontWeight:700,
+                                  color: d.Target > 0 ? pctColor(p) : "#9ca3af"}}>
+                                  {d.Target > 0 ? p.toFixed(0) + "%" : "—"}
+                                </td>
+                                <td style={{...tdStyleR,
+                                  color: change > 0 ? "#059669" : change < 0 ? "#dc2626" : "#6b7280"}}>
+                                  {change !== null ? (change > 0 ? "+" : "") + change.toFixed(0) + "%" : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </Panel>
+
+            {/* ============= HEATMAP SECTIONS ============= */}
+            {(() => {
+              const HEATMAP_KPIS = [
+                { id: "sales",  label: "Total Sales",      color: "#2563eb" },
+                { id: "active", label: "Active 3-mo Cust", color: "#8b5cf6" },
+                { id: "shop",   label: "Shop Around",      color: "#0ea5e9" },
+                { id: "new",    label: "New Listing",      color: "#ec4899" },
+                { id: "nu",     label: "NU",               color: "#f59e0b" },
+              ];
+
+              const fmtVal = (v) => {
+                if (!v) return "0";
+                if (v >= 1000000) return (v/1000000).toFixed(1) + "M";
+                if (v >= 1000) return (v/1000).toFixed(1) + "K";
+                return v.toString();
+              };
+
+              // Compute actual/target for one KPI, one month, one scope
+              const compute = (kpiId, m, srCode, flmName) => {
+                let actual = 0, target = 0;
+                try {
+                  if (kpiId === "sales") {
+                    (RAW.actuals || []).forEach(r => {
+                      if (r.m !== m) return;
+                      if (srCode != null && r.sr !== srCode) return;
+                      if (flmName != null && r.f !== flmName) return;
+                      actual += r.v || 0;
+                    });
+                    (RAW.targets || []).forEach(r => {
+                      if (r.m !== m) return;
+                      if (srCode != null && r.sr !== srCode) return;
+                      if (flmName != null && r.f !== flmName) return;
+                      target += r.t || 0;
+                    });
+                  } else if (kpiId === "active") {
+                    const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || [];
+                    ab.forEach(r => {
+                      if (srCode != null && r.sr !== srCode) return;
+                      if (flmName != null && r.f !== flmName) return;
+                      actual += 1;
+                    });
+                    const at = RAW.activeTargetByMonth && RAW.activeTargetByMonth[m];
+                    if (at) {
+                      if (srCode != null) {
+                        target = (at.bySr && at.bySr[srCode]) || 0;
+                      } else if (flmName != null) {
+                        target = (at.byFlm && at.byFlm[flmName]) || 0;
+                      } else {
+                        Object.values(at.bySr || {}).forEach(v => target += v);
+                      }
+                    }
+                  } else if (kpiId === "shop") {
+                    const sb = (RAW.shopByMonth && RAW.shopByMonth[m]) || [];
+                    sb.forEach(r => {
+                      if (srCode != null && r.sr !== srCode) return;
+                      if (flmName != null && r.f !== flmName) return;
+                      actual += r.v || 0;
+                      target += r.t || 0;
+                    });
+                  } else if (kpiId === "new") {
+                    const nb = (RAW.newByMonth && RAW.newByMonth[m]) || [];
+                    nb.forEach(r => {
+                      if (srCode != null && r.sr !== srCode) return;
+                      if (flmName != null && r.f !== flmName) return;
+                      actual += 1;
+                    });
+                    const nt = RAW.newTargetByMonth && RAW.newTargetByMonth[m];
+                    if (nt) {
+                      if (srCode != null) {
+                        target = (nt.bySr && nt.bySr[srCode]) || 0;
+                      } else if (flmName != null) {
+                        target = (nt.byFlm && nt.byFlm[flmName]) || 0;
+                      } else {
+                        Object.values(nt.bySr || {}).forEach(v => target += v);
+                      }
+                    }
+                  } else if (kpiId === "nu") {
+                    const lt = RAW.leadTargetByMonth && RAW.leadTargetByMonth[m];
+                    const la = RAW.leadActualByMonth && RAW.leadActualByMonth[m];
+                    if (lt) {
+                      if (srCode != null) {
+                        target = (lt.bySr && lt.bySr[srCode]) || 0;
+                      } else if (flmName != null) {
+                        target = (lt.byFlm && lt.byFlm[flmName]) || 0;
+                      } else {
+                        Object.values(lt.bySr || {}).forEach(v => target += v);
+                      }
+                    }
+                    if (la) {
+                      if (srCode != null) {
+                        actual = (la.bySr && la.bySr[srCode]) || 0;
+                      } else if (flmName != null) {
+                        actual = (la.byFlm && la.byFlm[flmName]) || 0;
+                      } else {
+                        Object.values(la.bySr || {}).forEach(v => actual += v);
+                      }
+                    }
+                  }
+                } catch (e) {}
+                return { actual: Math.round(actual), target: Math.round(target) };
+              };
+
+              // Render a heatmap cell
+              const Cell = ({ actual, target }) => {
+                if (actual === 0 && target === 0) {
+                  return (
+                    <td style={{...tdStyleR, padding:"4px 4px", color:"#d1d5db", fontSize:9, background:"#fafafa"}}>—</td>
+                  );
+                }
+                const p = pct(actual, target);
+                const bg = target > 0 ? heatBg(p) : "#f3f4f6";
+                const fg = target > 0 ? heatFg(p) : "#6b7280";
+                return (
+                  <td style={{
+                    ...tdStyleR, padding:"4px 4px",
+                    background: bg, color: fg,
+                    borderRight:"1px solid #fff",
+                    lineHeight: 1.15,
+                  }}>
+                    <div style={{fontSize:9, fontWeight:600}}>
+                      {fmtVal(actual)}<span style={{opacity:.55, fontWeight:400}}>/{fmtVal(target)}</span>
+                    </div>
+                    <div style={{fontSize:10, fontWeight:700}}>
+                      {target > 0 ? p.toFixed(0) + "%" : "—"}
+                    </div>
+                  </td>
+                );
+              };
+
+              return HEATMAP_KPIS.map(kpi => {
+                // Build FLM table: rows = FLMs, cols = months
+                const flmRows = (RAW.flms || []).map(f => {
+                  const cells = MONTH_NAMES.map((mLabel, idx) => {
+                    return { mLabel, ...compute(kpi.id, idx + 1, null, f) };
+                  });
+                  return { flm: f, cells };
+                });
+
+                // Build SR table: rows = SRs, cols = months  
+                const srRows = (RAW.srs || []).map(s => {
+                  const cells = MONTH_NAMES.map((mLabel, idx) => {
+                    return { mLabel, ...compute(kpi.id, idx + 1, s.code, null) };
+                  });
+                  return { sr: s, cells };
+                });
+
+                // Filter SRs to only those with any data
+                const srWithData = srRows.filter(r => r.cells.some(c => c.actual > 0 || c.target > 0));
+
+                // Filter FLMs by current filter
+                const flmDisplay = flm === "All" ? flmRows : flmRows.filter(r => r.flm === flm);
+
+                return (
+                  <Panel key={"heatmap-" + kpi.id} title={"🗺️ " + kpi.label + " — Heatmap by Month"}>
+                    {/* === FLM TABLE === */}
+                    <div style={{fontSize:11, fontWeight:600, color:"#374151", marginBottom:6}}>
+                      FLM × Month
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
+                        <thead>
+                          <tr style={{background:"#f9fafb"}}>
+                            <th style={{...thStyle, position:"sticky", left:0, background:"#f9fafb", zIndex:1, minWidth:120}}>FLM</th>
+                            {MONTH_NAMES.map(m => (
+                              <th key={m} style={{...thStyleR, fontSize:9, minWidth:70}}>{m}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flmDisplay.map(r => (
+                            <tr key={r.flm} style={{borderTop:"1px solid #f3f4f6"}}>
+                              <td style={{...tdStyle, position:"sticky", left:0, background:"#fff", zIndex:1, fontWeight:600, fontSize:11}}>
+                                {r.flm}
+                              </td>
+                              {r.cells.map((c, i) => (
+                                <Cell key={i} actual={c.actual} target={c.target} />
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* === SR TABLE === */}
+                    <div style={{fontSize:11, fontWeight:600, color:"#374151", marginTop:14, marginBottom:6}}>
+                      SR × Month ({srWithData.length} SRs with data)
+                    </div>
+                    <div style={{overflowX:"auto", maxHeight:400, overflowY:"auto"}}>
+                      <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
+                        <thead>
+                          <tr style={{background:"#f9fafb", position:"sticky", top:0, zIndex:2}}>
+                            <th style={{...thStyle, position:"sticky", left:0, background:"#f9fafb", zIndex:3, minWidth:170}}>SR / FLM</th>
+                            {MONTH_NAMES.map(m => (
+                              <th key={m} style={{...thStyleR, fontSize:9, minWidth:70, background:"#f9fafb"}}>{m}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {srWithData
+                            .filter(r => flm === "All" || r.sr.flm === flm)
+                            .map(r => (
+                              <tr key={r.sr.code} style={{borderTop:"1px solid #f3f4f6"}}>
+                                <td style={{...tdStyle, position:"sticky", left:0, background:"#fff", zIndex:1, padding:"4px 8px"}}>
+                                  <div style={{fontSize:11, fontWeight:600}}>{r.sr.name}</div>
+                                  <div style={{fontSize:9, color:"#9ca3af"}}>{r.sr.flm}</div>
+                                </td>
+                                {r.cells.map((c, i) => (
+                                  <Cell key={i} actual={c.actual} target={c.target} />
+                                ))}
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Panel>
+                );
+              });
+            })()}
+            </>
+          );
+        } catch (e) {
+          return (
+            <Panel title="📈 Trend Analysis — Error">
+              <div style={{padding:20, color:"#dc2626"}}>
+                <div style={{fontWeight:700, marginBottom:6}}>Could not render Trend tab</div>
+                <div style={{fontSize:11, fontFamily:"monospace"}}>{e.message}</div>
+              </div>
+            </Panel>
+          );
+        }
+      })()}
 
       <div style={{marginTop:14, fontSize:10, color:"#9ca3af", textAlign:"center"}}>
         Source: Daily Sales · Target Set (Ethical) · Material Code Lookup ·
