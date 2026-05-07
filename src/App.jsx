@@ -8,7 +8,7 @@ import {
 // Replace with your Apps Script Web App URL (ends in /exec)
 const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5Dwaq1E-0cgOrn7CKIcRW8PMJuzywqH5WQIXWfQ7JKXiei/exec";
 
-// How often to refresh data (seconds)
+// Refresh interval for live data (seconds)
 const REFRESH_INTERVAL = 60;
 
 const KPI_DEFS = [
@@ -530,7 +530,7 @@ function Dashboard({ user, raw, onLogout }) {
         <Metric label="New Listing · Actual / Target" value={fmt(newTotal)}
           actual={fmt(newTotalT)} pct={pct(newTotal, newTotalT)} accent="#ec4899"
           secondaryLabel="tgt" />
-        <Metric label="Lead · Actual / Target" value={fmt(leadActualTotal)}
+        <Metric label="NU · Actual / Target" value={fmt(leadActualTotal)}
           actual={fmt(leadTotal)} pct={pct(leadActualTotal, leadTotal)} accent="#f59e0b"
           secondaryLabel="tgt" />
         <Metric label="Variance" value={fmt(C.totalActual - C.totalTarget)}
@@ -555,7 +555,7 @@ function Dashboard({ user, raw, onLogout }) {
         <TabBtn label="Shop Around" v="shop" cur={tab} on={setTab} />
         <TabBtn label="Active Cust." v="active" cur={tab} on={setTab} />
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
-        <TabBtn label="Leads" v="leads" cur={tab} on={setTab} />
+        <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
       </div>
 
       {/* ============ SUMMARY ============ */}
@@ -658,7 +658,7 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
           </Panel>
 
-          <Panel title="FLM Coverage Metrics (Shop Around · Active 3-mo · New Listing · Lead)">
+          <Panel title="FLM Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)">
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
@@ -672,8 +672,8 @@ function Dashboard({ user, raw, onLogout }) {
                   <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>New Tgt</th>
                   <th style={thStyleR}>New Act</th>
                   <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Lead Tgt</th>
-                  <th style={thStyleR}>Lead Act</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>NU Tgt</th>
+                  <th style={thStyleR}>NU Act</th>
                   <th style={thStyleR}>%</th>
                 </tr></thead>
                 <tbody>
@@ -866,7 +866,7 @@ function Dashboard({ user, raw, onLogout }) {
                       <th style={{...thStyleR, fontSize:9, color:"#0ea5e9", borderLeft:"2px solid #d1d5db", borderBottom:"2px solid #d1d5db", padding:"6px 6px"}}>SHOP<br/><span style={{fontSize:7, fontWeight:400, color:"#9ca3af"}}>act/tgt</span></th>
                       <th style={{...thStyleR, fontSize:9, color:"#8b5cf6", borderBottom:"2px solid #d1d5db", padding:"6px 6px"}}>ACT<br/><span style={{fontSize:7, fontWeight:400, color:"#9ca3af"}}>act/tgt</span></th>
                       <th style={{...thStyleR, fontSize:9, color:"#ec4899", borderBottom:"2px solid #d1d5db", padding:"6px 6px"}}>NEW<br/><span style={{fontSize:7, fontWeight:400, color:"#9ca3af"}}>act/tgt</span></th>
-                      <th style={{...thStyleR, fontSize:9, color:"#f59e0b", borderBottom:"2px solid #d1d5db", padding:"6px 6px"}}>LEAD<br/><span style={{fontSize:7, fontWeight:400, color:"#9ca3af"}}>act/tgt</span></th>
+                      <th style={{...thStyleR, fontSize:9, color:"#f59e0b", borderBottom:"2px solid #d1d5db", padding:"6px 6px"}}>NU<br/><span style={{fontSize:7, fontWeight:400, color:"#9ca3af"}}>act/tgt</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -975,7 +975,7 @@ function Dashboard({ user, raw, onLogout }) {
                 <span style={{background:"#fef3c7", padding:"1px 5px", marginLeft:2, borderRadius:2}}>80-100%</span>
                 <span style={{background:"#fee2e2", padding:"1px 5px", marginLeft:2, borderRadius:2}}>50-80%</span>
                 <span style={{background:"#fecaca", padding:"1px 5px", marginLeft:2, borderRadius:2}}>{"<50%"}</span>
-                <span style={{marginLeft:8}}>· Coverage = Shop / Active 3-mo / New Listing / Lead</span>
+                <span style={{marginLeft:8}}>· Coverage = Shop / Active 3-mo / New Listing / NU</span>
               </div>
             </Panel>
           </>
@@ -1595,15 +1595,15 @@ function Dashboard({ user, raw, onLogout }) {
         return (
           <>
             <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10}}>
-              <Metric label="Lead · Actual / Target" value={fmt(leadActualTotal)}
+              <Metric label="NU · Actual / Target" value={fmt(leadActualTotal)}
                 actual={fmt(leadTotal)} pct={pct(leadActualTotal, leadTotal)} accent="#f59e0b"
                 secondaryLabel="tgt" />
               <Metric label="SRs with target" value={String(Object.keys(leadTM.bySr || {}).filter(k => leadTM.bySr[k] > 0).length)}
                 actual={(RAW.leads || []).length + " entries"} pct={null} accent="#0ea5e9" />
-              <Metric label="Source" value="Actual-Lead tab"
+              <Metric label="Source" value="Actual-NU tab"
                 actual="auto-extends per month" pct={null} accent="#6b7280" />
             </div>
-            <Panel title="Leads — FLM × SR (expandable)">
+            <Panel title="NU — FLM × SR (expandable)">
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR</th>
@@ -1865,7 +1865,7 @@ function SRScorecard({ sr, onKpiClick }) {
         <div>New: <strong style={{color:"#111827"}}>{sr.newActual}</strong>
           <span style={{color:"#9ca3af"}}> / {sr.newTarget}</span>
         </div>
-        <div>Lead: <strong style={{color:"#111827"}}>{sr.leadActual}</strong>
+        <div>NU: <strong style={{color:"#111827"}}>{sr.leadActual}</strong>
           <span style={{color:"#9ca3af"}}> / {sr.leadTarget}</span>
           {sr.leadTarget > 0 && (
             <span style={{color:pctColor(pct(sr.leadActual, sr.leadTarget)), fontWeight:600, marginLeft:3}}>
