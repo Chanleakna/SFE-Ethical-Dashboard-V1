@@ -1697,11 +1697,13 @@ function Dashboard({ user, raw, onLogout }) {
                   target += r.t || 0;
                 });
               } else if (kpiId === "active") {
-                const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || [];
-                ab.forEach(r => {
-                  if (flm !== "All" && r.f !== flm) return;
-                  actual += 1;
-                });
+                // activeByMonth[m] = {total, byFlm, bySr, customers}
+                const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || {};
+                if (flm !== "All") {
+                  actual = (ab.byFlm && ab.byFlm[flm]) || 0;
+                } else {
+                  actual = ab.total || 0;
+                }
                 const at = RAW.activeTargetByMonth && RAW.activeTargetByMonth[m];
                 if (at) {
                   if (flm !== "All") {
@@ -1718,11 +1720,13 @@ function Dashboard({ user, raw, onLogout }) {
                   target += r.t || 0;
                 });
               } else if (kpiId === "new") {
-                const nb = (RAW.newByMonth && RAW.newByMonth[m]) || [];
-                nb.forEach(r => {
-                  if (flm !== "All" && r.f !== flm) return;
-                  actual += 1;
-                });
+                // newByMonth[m] = {items, byFlm, bySr}
+                const nb = (RAW.newByMonth && RAW.newByMonth[m]) || {};
+                if (flm !== "All") {
+                  actual = (nb.byFlm && nb.byFlm[flm]) || 0;
+                } else {
+                  actual = (nb.items && nb.items.length) || 0;
+                }
                 const nt = RAW.newTargetByMonth && RAW.newTargetByMonth[m];
                 if (nt) {
                   if (flm !== "All") {
@@ -1836,14 +1840,15 @@ function Dashboard({ user, raw, onLogout }) {
                     {/* Bar chart with target + actual */}
                     <div style={{height:240}}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data} margin={{top:25, right:15, left:0, bottom:5}}>
+                        <BarChart data={data} margin={{top:25, right:15, left:0, bottom:5}}
+                          barCategoryGap="20%" barGap={3}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                           <XAxis dataKey="month" tick={{fontSize:10, fill:"#6b7280"}} />
                           <YAxis tick={{fontSize:10, fill:"#6b7280"}} tickFormatter={fmtVal} />
                           <Tooltip formatter={(v) => fmtVal(v)} />
                           <Legend wrapperStyle={{fontSize:11}} />
-                          <Bar dataKey="Target" fill="#d1d5db" name="Target" />
-                          <Bar dataKey="Actual" fill={kpi.color} name="Actual" />
+                          <Bar dataKey="Target" fill="#d1d5db" name="Target" maxBarSize={28} />
+                          <Bar dataKey="Actual" fill={kpi.color} name="Actual" maxBarSize={28} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1930,12 +1935,15 @@ function Dashboard({ user, raw, onLogout }) {
                       target += r.t || 0;
                     });
                   } else if (kpiId === "active") {
-                    const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || [];
-                    ab.forEach(r => {
-                      if (srCode != null && r.sr !== srCode) return;
-                      if (flmName != null && r.f !== flmName) return;
-                      actual += 1;
-                    });
+                    // activeByMonth[m] = {total, byFlm, bySr, customers}
+                    const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || {};
+                    if (srCode != null) {
+                      actual = (ab.bySr && ab.bySr[srCode]) || 0;
+                    } else if (flmName != null) {
+                      actual = (ab.byFlm && ab.byFlm[flmName]) || 0;
+                    } else {
+                      actual = ab.total || 0;
+                    }
                     const at = RAW.activeTargetByMonth && RAW.activeTargetByMonth[m];
                     if (at) {
                       if (srCode != null) {
@@ -1955,12 +1963,16 @@ function Dashboard({ user, raw, onLogout }) {
                       target += r.t || 0;
                     });
                   } else if (kpiId === "new") {
-                    const nb = (RAW.newByMonth && RAW.newByMonth[m]) || [];
-                    nb.forEach(r => {
-                      if (srCode != null && r.sr !== srCode) return;
-                      if (flmName != null && r.f !== flmName) return;
-                      actual += 1;
-                    });
+                    // newByMonth[m] = {items, byFlm, bySr}
+                    const nb = (RAW.newByMonth && RAW.newByMonth[m]) || {};
+                    if (srCode != null) {
+                      actual = (nb.bySr && nb.bySr[srCode]) || 0;
+                    } else if (flmName != null) {
+                      actual = (nb.byFlm && nb.byFlm[flmName]) || 0;
+                    } else {
+                      // Total = sum of all customers across SRs (or count of items)
+                      actual = (nb.items && nb.items.length) || 0;
+                    }
                     const nt = RAW.newTargetByMonth && RAW.newTargetByMonth[m];
                     if (nt) {
                       if (srCode != null) {
