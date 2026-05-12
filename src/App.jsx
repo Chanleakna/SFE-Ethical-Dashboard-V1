@@ -1767,11 +1767,9 @@ function Dashboard({ user, raw, onLogout }) {
           };
 
           const fmtVal = (v) => {
-            if (!v) return "0";
-            if (v >= 1000000) return (v/1000000).toFixed(1) + "M";
-            if (v >= 1000) return (v/1000).toFixed(1) + "K";
-            return v.toString();
-          };
+  if (!v) return "0";
+  return Math.round(v).toLocaleString();
+};
 
           const trendDirection = (data) => {
             const filtered = data.filter(d => d.Actual > 0);
