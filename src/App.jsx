@@ -39,8 +39,6 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 const fmt = (n) => {
   if (n == null || isNaN(n)) return "—";
   if (n === 0) return "0";
-  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (Math.abs(n) >= 1_000) return (n / 1_000).toFixed(1) + "K";
   return Math.round(n).toLocaleString();
 };
 const pct = (a, t) => (t > 0 ? (a / t) * 100 : 0);
