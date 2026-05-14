@@ -36,6 +36,35 @@ const SUB_BRANDS = [
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+// === Excel export helper ===
+const exportToExcel = (rows, filename, sheetName) => {
+  if (!rows || rows.length === 0) {
+    alert("No data to export with current filters.");
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    alert("Excel library not loaded. Refresh the page and try again.");
+    return;
+  }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const cols = Object.keys(rows[0]).map(k => {
+    const maxLen = Math.max(k.length, ...rows.map(r => String(r[k] ?? "").length));
+    return { wch: Math.min(maxLen + 2, 40) };
+  });
+  ws["!cols"] = cols;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName || "Data");
+  XLSX.writeFile(wb, filename);
+};
+
+const ExportBtn = ({ onClick, label = "Export Excel" }) => (
+  <button onClick={onClick} style={{
+    background: "#16a34a", color: "#fff", border: "none",
+    borderRadius: 6, padding: "5px 11px", fontSize: 11,
+    fontWeight: 600, cursor: "pointer", marginLeft: "auto",
+  }}>⬇ {label}</button>
+);
+
 const fmt = (n) => {
   if (n == null || isNaN(n)) return "—";
   if (n === 0) return "0";
@@ -579,7 +608,26 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
           </Panel>
 
-          <Panel title="FLM × KPI Matrix (click ▸ to expand SR detail)">
+          <Panel title="FLM × KPI Matrix (click ▸ to expand SR detail)"
+            action={<ExportBtn onClick={() => {
+              const rows = [];
+              C.flmRollup.forEach(f => {
+                f.srs.forEach(sr => {
+                  const card = C.srScorecards.find(c => c.code === sr.code);
+                  if (!card) return;
+                  rows.push({
+                    "FLM": f.flm,
+                    "SR Code": sr.code,
+                    "SR Name": sr.name,
+                    "Total Target": Math.round(card.totalT),
+                    "Total Actual": Math.round(card.totalA),
+                    "Variance": Math.round(card.totalA - card.totalT),
+                    "% Achievement": card.totalT > 0 ? card.totalPct.toFixed(1) + "%" : "—",
+                  });
+                });
+              });
+              exportToExcel(rows, `Summary_${MONTH_NAMES[month-1]}${year}.xlsx`, "Summary");
+            }} />}>
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
@@ -657,7 +705,25 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
           </Panel>
 
-          <Panel title="FLM Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)">
+          <Panel title="FLM Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)"
+            action={<ExportBtn onClick={() => {
+              const rows = C.flmCoverage.map(r => ({
+                "FLM": r.flm,
+                "Shop Target": Math.round(r.shopT),
+                "Shop Actual": Math.round(r.shopA),
+                "Shop %": r.shopT > 0 ? ((r.shopA/r.shopT)*100).toFixed(0) + "%" : "—",
+                "Active Target": r.activeT,
+                "Active Actual": r.activeA,
+                "Active %": r.activeT > 0 ? ((r.activeA/r.activeT)*100).toFixed(0) + "%" : "—",
+                "New Target": r.newT,
+                "New Actual": r.newA,
+                "New %": r.newT > 0 ? ((r.newA/r.newT)*100).toFixed(0) + "%" : "—",
+                "NU Target": r.leadT,
+                "NU Actual": r.leadA,
+                "NU %": r.leadT > 0 ? ((r.leadA/r.leadT)*100).toFixed(0) + "%" : "—",
+              }));
+              exportToExcel(rows, `FLMCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "FLM Coverage");
+            }} />}>
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
@@ -834,7 +900,36 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
 
             {/* === ONE BIG TABLE === */}
-            <Panel title={"📊 SR Performance Table — All KPIs · " + MONTH_NAMES[month-1] + "-" + String(year).slice(2)}>
+            <Panel title={"📊 SR Performance Table — All KPIs · " + MONTH_NAMES[month-1] + "-" + String(year).slice(2)}
+              action={<ExportBtn onClick={() => {
+                const rows = ranked.map(sr => {
+                  const row = {
+                    "Rank": sr.rank,
+                    "SR Code": sr.code,
+                    "SR Name": sr.name,
+                    "FLM": sr.flm,
+                    "Total Target": Math.round(sr.totalT),
+                    "Total Actual": Math.round(sr.totalA),
+                    "Total %": sr.totalT > 0 ? sr.totalPct.toFixed(1) + "%" : "—",
+                  };
+                  KPI_DEFS.forEach(k => {
+                    const d = sr.kpis[k.key];
+                    row[k.label + " Tgt"] = Math.round(d.target);
+                    row[k.label + " Act"] = Math.round(d.actual);
+                    row[k.label + " %"] = d.target > 0 ? ((d.actual/d.target)*100).toFixed(0) + "%" : "—";
+                  });
+                  row["Shop Tgt"] = Math.round(sr.shopTarget);
+                  row["Shop Act"] = Math.round(sr.shopActual);
+                  row["Active Tgt"] = sr.activeTarget;
+                  row["Active Act"] = sr.activeActual;
+                  row["New Tgt"] = sr.newTarget;
+                  row["New Act"] = sr.newActual;
+                  row["NU Tgt"] = sr.leadTarget;
+                  row["NU Act"] = sr.leadActual;
+                  return row;
+                });
+                exportToExcel(rows, `SRScorecards_${MONTH_NAMES[month-1]}${year}.xlsx`, "SR Scorecards");
+              }} />}>
               <div style={{overflowX:"auto", marginLeft:-4, marginRight:-4}}>
                 <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
                   <thead>
@@ -1089,7 +1184,19 @@ function Dashboard({ user, raw, onLogout }) {
               );
             })()}
 
-            <Panel title={k.label + " — FLM × SR Matrix (expandable)"}>
+            <Panel title={k.label + " — FLM × SR Matrix (expandable)"}
+              action={<ExportBtn onClick={() => {
+                const rows = srRows.map(r => ({
+                  "FLM": r.flm,
+                  "SR Code": r.code,
+                  "SR Name": r.name,
+                  "Target": Math.round(r.target),
+                  "Actual": Math.round(r.actual),
+                  "Variance": Math.round(r.actual - r.target),
+                  "% Achievement": r.target > 0 ? ((r.actual/r.target)*100).toFixed(1) + "%" : "—",
+                }));
+                exportToExcel(rows, `${k.label.replace(/\s/g, "")}_SRMatrix_${MONTH_NAMES[month-1]}${year}.xlsx`, k.label + " SR");
+              }} />}>
               {(flm === "All" ? RAW.flms : [flm]).map(f => {
                 const flmSrs = srRows.filter(r => r.flm === f);
                 if (flmSrs.length === 0) return null;
@@ -1153,7 +1260,17 @@ function Dashboard({ user, raw, onLogout }) {
               })}
             </Panel>
 
-            <Panel title={k.label + " — Customer Details (" + custDetails.length + " customers)"}>
+            <Panel title={k.label + " — Customer Details (" + custDetails.length + " customers)"}
+              action={<ExportBtn onClick={() => {
+                const rows = custDetails.map(c => ({
+                  "FLM": c.flm,
+                  "SR Name": c.srName,
+                  "Customer Code": c.c,
+                  "Customer Name": c.cn,
+                  "Sales (Actual)": Math.round(c.v),
+                }));
+                exportToExcel(rows, `${k.label.replace(/\s/g, "")}_Customers_${MONTH_NAMES[month-1]}${year}.xlsx`, k.label);
+              }} />}>
               <div style={{maxHeight:420, overflowY:"auto"}}>
                 <table style={tblStyle}>
                   <thead style={{position:"sticky", top:0, background:"#f9fafb", zIndex:1}}>
@@ -1215,7 +1332,24 @@ function Dashboard({ user, raw, onLogout }) {
                 actual="Sales to specific accounts" pct={null} accent="#ec4899" />
             </div>
 
-            <Panel title="Shop Around — FLM Matrix (expand to see SRs and customers)">
+            <Panel title="Shop Around — FLM Matrix (expand to see SRs and customers)"
+              action={<ExportBtn onClick={() => {
+                const rows = items.map(x => {
+                  const sr = RAW.srs.find(s => s.code === x.sr);
+                  return {
+                    "FLM": x.f || "—",
+                    "SR Code": x.sr,
+                    "SR Name": sr ? sr.name : "—",
+                    "Customer Code": x.c || "(new prospect)",
+                    "Customer Name": x.cn || "—",
+                    "Target": Math.round(x.t),
+                    "Actual": Math.round(x.v),
+                    "Variance": Math.round(x.v - x.t),
+                    "% Achievement": x.t > 0 ? ((x.v/x.t)*100).toFixed(1) + "%" : "—",
+                  };
+                });
+                exportToExcel(rows, `ShopAround_${MONTH_NAMES[month-1]}${year}.xlsx`, "Shop Around");
+              }} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR / Customer</th>
@@ -1346,7 +1480,26 @@ function Dashboard({ user, raw, onLogout }) {
                 actual="customers without FLM" pct={null} accent="#6b7280" />
             </div>
 
-            <Panel title="Active Customers — FLM × SR Matrix (expandable)">
+            <Panel title="Active Customers — FLM × SR Matrix (expandable)"
+              action={<ExportBtn onClick={() => {
+                const rows = [];
+                flmRows.forEach(f => {
+                  f.srs.forEach(s => {
+                    const tt = at.bySr?.[s.code] || 0;
+                    const aa = am.bySr?.[s.code] || 0;
+                    if (tt === 0 && aa === 0) return;
+                    rows.push({
+                      "FLM": f.flm,
+                      "SR Code": s.code,
+                      "SR Name": s.name,
+                      "Target": tt,
+                      "Actual": aa,
+                      "% Achievement": tt > 0 ? ((aa/tt)*100).toFixed(0) + "%" : "—",
+                    });
+                  });
+                });
+                exportToExcel(rows, `ActiveCust_Matrix_${MONTH_NAMES[month-1]}${year}.xlsx`, "Active Matrix");
+              }} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR</th>
@@ -1424,7 +1577,26 @@ function Dashboard({ user, raw, onLogout }) {
               </table>
             </Panel>
 
-            <Panel title={"Active Customer List (" + (am.customers || []).length + " customers active in 3-mo window)"}>
+            <Panel title={"Active Customer List (" + (am.customers || []).length + " customers active in 3-mo window)"}
+              action={<ExportBtn onClick={() => {
+                const rows = (am.customers || [])
+                  .map(cc => {
+                    const cust = RAW.customers.find(x => x.c === cc);
+                    const sr = cust && cust.sr ? RAW.srs.find(s => s.code === cust.sr) : null;
+                    return { c: cc, n: cust?.n, f: cust?.f, sr };
+                  })
+                  .filter(c => flm === "All" || c.f === flm)
+                  .filter(c => srFilter === "All" || (c.sr && c.sr.code === Number(srFilter)))
+                  .filter(c => custFilter === "All" || c.c === Number(custFilter))
+                  .map(c => ({
+                    "FLM": c.f || "Unassigned",
+                    "SR Code": c.sr ? c.sr.code : "—",
+                    "SR Name": c.sr ? c.sr.name : "—",
+                    "Customer Code": c.c,
+                    "Customer Name": c.n || "—",
+                  }));
+                exportToExcel(rows, `ActiveCustomers_${MONTH_NAMES[month-1]}${year}.xlsx`, "Active Customers");
+              }} />}>
               <div style={{maxHeight:380, overflowY:"auto"}}>
                 <table style={tblStyle}>
                   <thead style={{position:"sticky", top:0, background:"#f9fafb", zIndex:1}}>
@@ -1491,7 +1663,26 @@ function Dashboard({ user, raw, onLogout }) {
                 actual="not bought in prior 12 months" pct={null} accent="#f59e0b" />
             </div>
 
-            <Panel title="New Listing — FLM × SR Matrix (expandable)">
+            <Panel title="New Listing — FLM × SR Matrix (expandable)"
+              action={<ExportBtn onClick={() => {
+                const rows = [];
+                flmRows.forEach(f => {
+                  f.srs.forEach(s => {
+                    const tt = nt.bySr?.[s.code] || 0;
+                    const aa = nm.bySr?.[s.code] || 0;
+                    if (tt === 0 && aa === 0) return;
+                    rows.push({
+                      "FLM": f.flm,
+                      "SR Code": s.code,
+                      "SR Name": s.name,
+                      "Target": tt,
+                      "Actual": aa,
+                      "% Achievement": tt > 0 ? ((aa/tt)*100).toFixed(0) + "%" : "—",
+                    });
+                  });
+                });
+                exportToExcel(rows, `NewListing_Matrix_${MONTH_NAMES[month-1]}${year}.xlsx`, "New Matrix");
+              }} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR</th>
@@ -1548,7 +1739,21 @@ function Dashboard({ user, raw, onLogout }) {
               </table>
             </Panel>
 
-            <Panel title={"New Listing items (" + items.length + ")"}>
+            <Panel title={"New Listing items (" + items.length + ")"}
+              action={<ExportBtn onClick={() => {
+                const rows = items.map(p => {
+                  const sr = p.sr ? RAW.srs.find(s => s.code === p.sr) : null;
+                  return {
+                    "FLM": p.f || "Unassigned",
+                    "SR Code": p.sr || "—",
+                    "SR Name": sr ? sr.name : "—",
+                    "Customer Code": p.c,
+                    "Customer Name": p.n || "Cust " + p.c,
+                    "KPI": p.k,
+                  };
+                });
+                exportToExcel(rows, `NewListing_${MONTH_NAMES[month-1]}${year}.xlsx`, "New Listing");
+              }} />}>
               <div style={{maxHeight:380, overflowY:"auto"}}>
                 <table style={tblStyle}>
                   <thead style={{position:"sticky", top:0, background:"#f9fafb", zIndex:1}}>
@@ -1602,7 +1807,26 @@ function Dashboard({ user, raw, onLogout }) {
               <Metric label="Source" value="Actual-NU tab"
                 actual="auto-extends per month" pct={null} accent="#6b7280" />
             </div>
-            <Panel title="NU — FLM × SR (expandable)">
+            <Panel title="NU — FLM × SR (expandable)"
+              action={<ExportBtn onClick={() => {
+                const rows = [];
+                (flm === "All" ? RAW.flms : [flm]).forEach(f => {
+                  RAW.srs.filter(s => s.flm === f).forEach(s => {
+                    const t = leadTM.bySr[s.code] || 0;
+                    const a = leadAM.bySr[s.code] || 0;
+                    if (t === 0 && a === 0) return;
+                    rows.push({
+                      "FLM": f,
+                      "SR Code": s.code,
+                      "SR Name": s.name,
+                      "NU Target": t,
+                      "NU Actual": a,
+                      "% Achievement": t > 0 ? ((a/t)*100).toFixed(0) + "%" : "—",
+                    });
+                  });
+                });
+                exportToExcel(rows, `NU_${MONTH_NAMES[month-1]}${year}.xlsx`, "NU");
+              }} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR</th>
@@ -1767,9 +1991,9 @@ function Dashboard({ user, raw, onLogout }) {
           };
 
           const fmtVal = (v) => {
-  if (!v) return "0";
-  return Math.round(v).toLocaleString();
-};
+            if (!v) return "0";
+            return Math.round(v).toLocaleString();
+          };
 
           const trendDirection = (data) => {
             const filtered = data.filter(d => d.Actual > 0);
@@ -1785,7 +2009,24 @@ function Dashboard({ user, raw, onLogout }) {
 
           return (
             <>
-            <Panel title="📈 Trend Analysis — 2026 Year-to-Date">
+            <Panel title="📈 Trend Analysis — 2026 Year-to-Date"
+              action={<ExportBtn onClick={() => {
+                const rows = [];
+                TREND_KPIS.forEach(kpi => {
+                  MONTH_NAMES.forEach((mLabel, idx) => {
+                    const { actual, target } = computeMonth(kpi.id, idx + 1);
+                    if (actual === 0 && target === 0) return;
+                    rows.push({
+                      "KPI": kpi.label,
+                      "Month": mLabel + " " + year,
+                      "Actual": actual,
+                      "Target": target,
+                      "%": target > 0 ? ((actual/target)*100).toFixed(0) + "%" : "—",
+                    });
+                  });
+                });
+                exportToExcel(rows, `Trend_${year}_${flm === "All" ? "All" : flm.replace(/\s/g,"")}.xlsx`, "Trend");
+              }} />}>
               <div style={{fontSize:11, color:"#6b7280", marginBottom:14}}>
                 5 KPIs across 2026. FLM filter applies (currently: <strong>{flm}</strong>).
                 Months with no data show 0. Trend = direction of last few months with data.
@@ -1908,9 +2149,7 @@ function Dashboard({ user, raw, onLogout }) {
 
               const fmtVal = (v) => {
                 if (!v) return "0";
-                if (v >= 1000000) return (v/1000000).toFixed(1) + "M";
-                if (v >= 1000) return (v/1000).toFixed(1) + "K";
-                return v.toString();
+                return Math.round(v).toLocaleString();
               };
 
               // Compute actual/target for one KPI, one month, one scope
@@ -2052,7 +2291,29 @@ function Dashboard({ user, raw, onLogout }) {
                 });
 
                 return (
-                  <Panel key={"heatmap-" + kpi.id} title={"🗺️ " + kpi.label + " — Heatmap by Month (click ▸ to expand SRs)"}>
+                  <Panel key={"heatmap-" + kpi.id} title={"🗺️ " + kpi.label + " — Heatmap by Month (click ▸ to expand SRs)"}
+                    action={<ExportBtn onClick={() => {
+                      const rows = [];
+                      flmRows.forEach(r => {
+                        // FLM totals row
+                        const flmRow = { "Level": "FLM", "FLM": r.flm, "SR Code": "", "SR Name": "" };
+                        r.cells.forEach((c, i) => {
+                          flmRow[MONTH_NAMES[i] + " Act"] = c.actual;
+                          flmRow[MONTH_NAMES[i] + " Tgt"] = c.target;
+                        });
+                        rows.push(flmRow);
+                        // SR rows
+                        r.srs.forEach(srRow => {
+                          const sr_row = { "Level": "SR", "FLM": r.flm, "SR Code": srRow.sr.code, "SR Name": srRow.sr.name };
+                          srRow.cells.forEach((c, i) => {
+                            sr_row[MONTH_NAMES[i] + " Act"] = c.actual;
+                            sr_row[MONTH_NAMES[i] + " Tgt"] = c.target;
+                          });
+                          rows.push(sr_row);
+                        });
+                      });
+                      exportToExcel(rows, `Heatmap_${kpi.label.replace(/\s/g,"")}_${year}.xlsx`, kpi.label);
+                    }} />}>
                     <div style={{overflowX:"auto"}}>
                       <table style={{...tblStyle, fontSize:10, borderCollapse:"separate", borderSpacing:0}}>
                         <thead>
@@ -2189,13 +2450,19 @@ function Metric({ label, value, actual, pct, accent, sub, secondaryLabel }) {
   );
 }
 
-function Panel({ title, children }) {
+function Panel({ title, children, action }) {
   return (
     <div style={{
       background:"#fff", border:"1px solid #e5e7eb", borderRadius:8,
       padding:12, marginBottom:10,
     }}>
-      <div style={{fontSize:12, fontWeight:600, color:"#111827", marginBottom:10}}>{title}</div>
+      <div style={{
+        fontSize:12, fontWeight:600, color:"#111827", marginBottom:10,
+        display:"flex", alignItems:"center", gap:8,
+      }}>
+        <span>{title}</span>
+        {action}
+      </div>
       {children}
     </div>
   );
