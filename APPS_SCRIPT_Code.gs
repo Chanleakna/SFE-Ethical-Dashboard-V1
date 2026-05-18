@@ -1,20 +1,24 @@
 /**
  * SFE KPI Dashboard — Backend (Apps Script)
- * 
- * SETUP:
- * 1. This script is attached to your IMS Targets sheet
- * 2. It reads from 3 Google Sheets via their IDs (already configured below)
- * 3. Add 2 new tabs to your IMS Targets sheet: 'Users' and 'Shared_Customers'
- * 
- * DEPLOY:
- *   Deploy → New deployment → Web app → Execute as: Me → Access: Anyone → Deploy
- * 
+ *
  * RE-DEPLOY when you change this code:
  *   Deploy → Manage deployments → pencil icon → Version: New version → Deploy
+ *
+ * FIXES IN THIS VERSION:
+ *   1. Ethical filter is now case-insensitive (handles "Ethical", "ETHICAL", " ethical ", etc.)
+ *      Trade rows are excluded properly in all 3 calculations (Sales, Active, New Listing).
+ *   2. "Thay Dararith - Vacancy" is now treated as a DIFFERENT SR from "Thay Dararith".
+ *      Removed the vacancy-strip from tokenize so SR Codes match correctly.
+ *
+ * NEW LISTING LOGIC:
+ *   Customer matching is by NAME (not Customer Code), because 2025 data uses
+ *   placeholder code 281000000 while 2026 uses real codes. Name-based matching
+ *   correctly detects prior history across this code change.
+ *   ALL OTHER KPIs continue to use Customer Code as before.
  */
 
 // =============================================================================
-// CONFIGURATION — Sheet IDs (already filled in for your sheets)
+// CONFIGURATION
 // =============================================================================
 const SHEET_IDS = {
   ims:      '1ocanfdc_9R6m0X0sH9W0dlCvc2U9EoeT50Wul61rrEk',
@@ -23,26 +27,21 @@ const SHEET_IDS = {
 };
 
 const TAB_NAMES = {
-  // In IMS Targets sheet
   targets:      'Target Set',
   shopDetails:  'Target - Shop Around Details',
   activeTarget: 'Target-Active Cus 3 Months',
   newTarget:    'Target - New Listing',
   leadTarget:   'Target-Lead',
-  leadActual:   'Actual-Lead',            // ← Lead actuals (manual entry per month)
+  leadActual:   'Actual-Lead',
   users:        'Users',
   shared:       'Shared_Customers',
-  
-  // In Daily Sales sheet
-  daily: 'Export',
-  
-  // In Master Material Code sheet
-  materials: 'Maser Material Code',
+  shopCoverage: 'Shop_Coverage',
+  hcpHco:       'HCP_HCO_Lookup',
+  daily:        'Export',
+  materials:    'Maser Material Code',
 };
 
-// Months we support (1=Jan, 12=Dec). Year is 2026.
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
-
 const CACHE_SECONDS = 300;
 
 // =============================================================================
@@ -51,15 +50,12 @@ const CACHE_SECONDS = 300;
 function doGet(e) {
   try {
     const action = e && e.parameter && e.parameter.action;
-    
-    // No action = serve the dashboard HTML
     if (!action) {
       return HtmlService.createHtmlOutputFromFile('index')
         .setTitle('SFE KPI Dashboard')
         .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
         .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
     }
-    
     if (action === 'login')   return jsonResponse(handleLogin(e.parameter.code));
     if (action === 'data')    return jsonResponse(getDashboardData());
     if (action === 'health')  return jsonResponse({ ok: true, time: new Date().toISOString() });
@@ -127,16 +123,24 @@ function buildDashboardPayload() {
   const imsSS    = SpreadsheetApp.openById(SHEET_IDS.ims);
   const dailySS  = SpreadsheetApp.openById(SHEET_IDS.daily);
   const matSS    = SpreadsheetApp.openById(SHEET_IDS.material);
-  
+
   const daily      = readSheet(dailySS,  TAB_NAMES.daily);
   const targets    = readSheet(imsSS,    TAB_NAMES.targets);
   const materials  = readSheet(matSS,    TAB_NAMES.materials);
   const shared     = readSheet(imsSS,    TAB_NAMES.shared);
+  let shopCoverage = [];
+  try { shopCoverage = readSheet(imsSS, TAB_NAMES.shopCoverage); }
+  catch (e) { Logger.log('Note: Shop_Coverage tab not found'); }
+
+  let hcpHcoLookup = [];
+  try { hcpHcoLookup = readSheet(imsSS, TAB_NAMES.hcpHco); }
+  catch (e) { Logger.log('Note: HCP_HCO_Lookup tab not found'); }
+
   const shopRaw    = readSheet(imsSS,    TAB_NAMES.shopDetails);
   const acTarget   = readSheet(imsSS,    TAB_NAMES.activeTarget);
   const nlTarget   = readSheet(imsSS,    TAB_NAMES.newTarget);
   const ldTarget   = readSheet(imsSS,    TAB_NAMES.leadTarget);
-  
+
   const matMap = {};
   materials.forEach(r => {
     if (r['Material Code']) {
@@ -146,12 +150,37 @@ function buildDashboardPayload() {
       };
     }
   });
-  
+
+  const FLM_TYPOS = {
+    'Thong Knaha': 'Thong Kanha',
+    'Thong knaha': 'Thong Kanha',
+    'Chhay Mengkong': 'Chay Mengkong',
+    'Sem sokhom': 'Sem Sokhom',
+    'In lena': 'In Lena',
+    'Um phana': 'Um Phana',
+    'Um Phanna': 'Um Phana',
+    'Thong kanha': 'Thong Kanha',
+  };
   const normFlm = (s) => {
     if (!s) return null;
-    return String(s).trim().replace(/Chhay/g, 'Chay').replace(/Phanna/g, 'Phana');
+    let v = String(s).trim();
+    if (FLM_TYPOS[v]) return FLM_TYPOS[v];
+    v = v.replace(/Chhay/g, 'Chay').replace(/Phanna/g, 'Phana').replace(/Knaha/g, 'Kanha');
+    return v;
   };
-  
+
+  // === FIX: case-insensitive Ethical filter ===
+  // Returns true if the row's Dep field equals "Ethical" (case- and whitespace-insensitive)
+  const isEthical = (depValue) => {
+    return String(depValue || '').trim().toUpperCase() === 'ETHICAL';
+  };
+
+  // Customer name normalization — used ONLY for New Listing (case + whitespace insensitive)
+  const normName = (s) => {
+    if (s === null || s === undefined || s === '') return null;
+    return String(s).trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
   const SHARED = {};
   shared.forEach(r => {
     const c = Number(r['Customer Code']);
@@ -163,25 +192,50 @@ function buildDashboardPayload() {
       w: Number(r['Weight']) || 1,
     });
   });
-  
+
+  const SHOP_COVERAGE = {};
+  shopCoverage.forEach(r => {
+    const c = Number(r['Customer Code']);
+    const sr = Number(r['SR Code']);
+    if (!c || !sr) return;
+    if (!SHOP_COVERAGE[c]) SHOP_COVERAGE[c] = [];
+    SHOP_COVERAGE[c].push(sr);
+  });
+
+  const HCP_TO_HCO = {};
+  hcpHcoLookup.forEach(r => {
+    const hcp = Number(r['HCP ID'] || r['HCP Code'] || r['Customer Code']);
+    const hco = r['HCO: Account Name'] || r['HCO Name'] || r['HCO Code'] || r['HCO'];
+    if (!hcp || hco === undefined || hco === null || hco === '') return;
+    HCP_TO_HCO[hcp] = String(hco).trim();
+  });
+  Logger.log('HCP_TO_HCO map size: ' + Object.keys(HCP_TO_HCO).length);
+
   const KPIS = ['SM','SIM','STC','PED PWD','PED RPB','ENS PWD','ENS RPB','GLU PWD','GLU RPB','PRO'];
   const ethical = targets.filter(r => r['Department'] === 'Ethical');
-  
+
   const srSeen = {};
   const srMaster = [];
+  // Strip '& Other Name' suffix from Seller Name display (e.g., "Chho Phanny & Ly Vuthea" -> "Chho Phanny")
+  // The full name is preserved in the sheet; this only changes how it's displayed on the dashboard.
+  const cleanSellerName = (s) => {
+    if (!s) return s;
+    return String(s).split('&')[0].trim();
+  };
+  
   ethical.forEach(r => {
     const code = Number(r['SR Code']);
     if (!code || srSeen[code]) return;
     srSeen[code] = true;
     srMaster.push({
       code: code,
-      name: r['Seller Name'],
+      name: cleanSellerName(r['Seller Name']),
       flm: normFlm(r['ASM/SM Name']),
     });
   });
   const srToFlm = {};
   srMaster.forEach(s => srToFlm[s.code] = s.flm);
-  
+
   const allTargets = [];
   ethical.forEach(r => {
     const d = new Date(r['Date']);
@@ -193,14 +247,17 @@ function buildDashboardPayload() {
       }
     });
   });
-  
+
+  // === FIX: tokenize NO LONGER strips "Vacancy" ===
+  // This keeps "Thay Dararith - Vacancy" SEPARATE from "Thay Dararith"
+  // so each gets matched to its own SR Code in Target Set.
   const tokenize = (s) => {
     if (!s) return [];
     return String(s).toLowerCase()
       .replace(/&/g, ' ')
-      .split(/[,;\s]+/).filter(p => p && p.length > 1);
+      .split(/[,;\s\-]+/).filter(p => p && p.length > 1);
   };
-  
+
   const srMatch = {};
   const dailySrNames = {};
   daily.forEach(r => {
@@ -209,7 +266,7 @@ function buildDashboardPayload() {
       dailySrNames[first] = true;
     }
   });
-  
+
   Object.keys(dailySrNames).forEach(daiName => {
     const dt = tokenize(daiName);
     if (dt.length === 0) return;
@@ -217,21 +274,27 @@ function buildDashboardPayload() {
     srMaster.forEach(sr => {
       const tt = tokenize(sr.name);
       if (tt.length === 0) return;
-      const common = dt.filter(x => tt.indexOf(x) >= 0);
-      if (common.length === 0) return;
-      let score = common.length / Math.max(dt.length, tt.length);
-      if (dt.every(x => tt.indexOf(x) >= 0) || tt.every(x => dt.indexOf(x) >= 0)) score += 0.5;
+      const dailyInMaster = dt.every(x => tt.indexOf(x) >= 0);
+      const masterInDaily = tt.every(x => dt.indexOf(x) >= 0);
+      if (!dailyInMaster && !masterInDaily) return;
+      let score = (dt.length + tt.length) / (2 * Math.max(dt.length, tt.length));
       if (score > bestScore) { bestScore = score; best = sr; }
     });
-    if (best && bestScore >= 0.4) {
+    if (best && bestScore >= 0.7) {
       srMatch[daiName] = best.code;
     }
   });
-  
-  // Add unmatched daily SRs as "Vacancy" entries (no FLM, sales tracked but not credited to team)
+
+  const dailySrFlm = {};
+  daily.forEach(r => {
+    if (!r['SR'] || !r['FLM']) return;
+    const first = String(r['SR']).split(/[,;]/)[0].trim();
+    const f = normFlm(r['FLM']);
+    if (f && !dailySrFlm[first]) dailySrFlm[first] = f;
+  });
+
   Object.keys(dailySrNames).forEach(daiName => {
-    if (srMatch[daiName]) return; // already matched
-    // Generate a stable negative SR code from the name (so it persists across runs)
+    if (srMatch[daiName]) return;
     let hash = 0;
     for (let i = 0; i < daiName.length; i++) {
       hash = ((hash << 5) - hash) + daiName.charCodeAt(i);
@@ -239,20 +302,22 @@ function buildDashboardPayload() {
     }
     const vacCode = -Math.abs(hash) % 100000;
     srMatch[daiName] = vacCode;
+    const realFlm = dailySrFlm[daiName] || 'Vacancy';
     srMaster.push({
       code: vacCode,
-      name: daiName + ' (Vacancy)',
-      flm: 'Vacancy',  // Special FLM label — not in main FLM list
+      name: daiName + (realFlm === 'Vacancy' ? ' (Vacancy)' : ' (Auto)'),
+      flm: realFlm,
     });
-    srToFlm[vacCode] = 'Vacancy';
+    srToFlm[vacCode] = realFlm;
   });
-  
-  const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
-  
+
+  // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
+  const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+
   const custDict = {};
   daily.forEach(r => {
     const c = Number(r['Customer Code']);
-    if (!c || r['Year'] !== 2026 || !r['FLM']) return;
+    if (!c || Number(r['Year']) !== 2026 || !r['FLM']) return;
     if (!custDict[c]) {
       const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
       custDict[c] = {
@@ -262,21 +327,24 @@ function buildDashboardPayload() {
       };
     }
   });
-  
+
   const allocated = [];
   daily.forEach(r => {
+    // === FIX: case-insensitive Ethical filter ===
+    if (!isEthical(r['Dep'])) return;
     const matCode = Number(r['Material Code']);
     const mat = matMap[matCode];
     if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) return;
     const monthNum = MONTH_MAP[r['Short Cut']];
     if (!monthNum) return;
+    if (Number(r['Year']) !== 2026) return;
     const cust = Number(r['Customer Code']);
     const cat = mat.cat;
     const sales = Number(r['Total Act. Sales']) || 0;
     const flm = normFlm(r['FLM']);
     const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
     const dailySr = srMatch[srFirst] || null;
-    
+
     if (SHARED[cust]) {
       const matching = SHARED[cust].filter(rule => rule.cat === cat);
       if (matching.length > 0) {
@@ -298,7 +366,7 @@ function buildDashboardPayload() {
       });
     }
   });
-  
+
   const aggMap = {};
   allocated.forEach(r => {
     const key = r.m + '|' + r.sr + '|' + r.f + '|' + r.k;
@@ -316,9 +384,11 @@ function buildDashboardPayload() {
       v: v,
     });
   });
-  
+
+  // === FIX: Shop Around customer-level sales now ALSO filter to Ethical only ===
   const dailyByPeriodCust = {};
   daily.forEach(r => {
+    if (!isEthical(r['Dep'])) return;  // Only count Ethical sales for Shop Around
     const m = MONTH_MAP[r['Short Cut']];
     const period = (r['Year'] || 0) * 100 + m;
     const c = Number(r['Customer Code']);
@@ -326,21 +396,35 @@ function buildDashboardPayload() {
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
     dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + (Number(r['Total Act. Sales']) || 0);
   });
+
+  // === SHOP AROUND ===
+  // Step 1: Count how many distinct SR codes share each customer (across Shop Around Details)
+  const shopSharedCount = {};
+  {
+    const seenPairs = {};
+    shopRaw.forEach(r => {
+      const c = Number(r['Customer Code']);
+      const sr = Number(r['SR Code']);
+      if (!c || !sr) return;
+      if (!seenPairs[c]) seenPairs[c] = {};
+      seenPairs[c][sr] = true;
+    });
+    Object.keys(seenPairs).forEach(c => {
+      shopSharedCount[Number(c)] = Object.keys(seenPairs[c]).length;
+    });
+  }
   
   const shopByMonth = {};
   MONTHS.forEach(m => {
     const period = 202600 + m;
     const items = [];
     shopRaw.forEach(r => {
-      const sr = Number(r['SR Code']);
-      if (!sr) return;
-      
-      // Customer Code may be a real number OR text like "New" (prospecting placeholder)
+      const srPrimary = Number(r['SR Code']);
+      if (!srPrimary) return;
       const rawCust = r['Customer Code'];
       const numCust = Number(rawCust);
-      const isPlaceholder = !numCust || isNaN(numCust);  // "New" or empty
+      const isPlaceholder = !numCust || isNaN(numCust);
       
-      // Find target column matching this month
       let target = 0;
       for (const col in r) {
         const colDate = new Date(col);
@@ -350,27 +434,32 @@ function buildDashboardPayload() {
         }
       }
       
-      // Actual: only for real customer codes (placeholders stay at 0)
-      const actual = isPlaceholder ? 0
+      const fullActual = isPlaceholder ? 0
         : ((dailyByPeriodCust[period] && dailyByPeriodCust[period][numCust]) || 0);
+      
+      const shareCount = (!isPlaceholder && shopSharedCount[numCust]) ? shopSharedCount[numCust] : 1;
+      
+      const actual = shareCount > 1 ? (fullActual / shareCount) : fullActual;
       
       if (target === 0 && actual === 0) return;
       
       items.push({
-        sr: sr,
-        f: srToFlm[sr] || normFlm(r['FLM']),
-        c: isPlaceholder ? null : numCust,           // null = placeholder
+        sr: srPrimary,
+        f: srToFlm[srPrimary] || normFlm(r['FLM']),
+        c: isPlaceholder ? null : numCust,
         cn: isPlaceholder
-          ? (String(rawCust || 'New') + ' Prospect')  // e.g., "New Prospect"
+          ? (String(rawCust || 'New') + ' Prospect')
           : String(r['Customer Name'] || ''),
         t: Math.round(target),
         v: Math.round(actual),
-        isNew: isPlaceholder,                         // flag for frontend
+        isNew: isPlaceholder,
+        shared: shareCount > 1,
+        coverCount: shareCount,
       });
     });
     shopByMonth[m] = items;
   });
-  
+
   const activeByMonth = {};
   MONTHS.forEach(m => {
     const periods = [];
@@ -380,6 +469,8 @@ function buildDashboardPayload() {
     });
     const custs = {};
     daily.forEach(r => {
+      // === FIX: case-insensitive Ethical filter ===
+      if (!isEthical(r['Dep'])) return;
       const mn = MONTH_MAP[r['Short Cut']];
       const p = (r['Year'] || 0) * 100 + mn;
       if (periods.indexOf(p) < 0) return;
@@ -410,18 +501,16 @@ function buildDashboardPayload() {
       customers: Object.keys(custs).map(Number),
     };
   });
-  
+
   const findCol = (obj, names) => {
     for (let i = 0; i < names.length; i++) if (names[i] in obj) return names[i];
     return null;
   };
-  
+
   const activeTargetByMonth = {};
   const MONTH_LABELS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   MONTHS.forEach(m => {
     const lbl = MONTH_LABELS_SHORT[m-1];
-    // Try multiple column header formats — Apr historically used "FINAL" naming;
-    // other months may use either pattern as you fill them in
     const candidates = [
       lbl + '-26\nFINAL', lbl + '-26 FINAL', lbl + '_Final',
       lbl + '-26\n(Act)', lbl + '-26 (Act)', lbl + '_Act',
@@ -439,46 +528,81 @@ function buildDashboardPayload() {
     });
     activeTargetByMonth[m] = { bySr: bySr, byFlm: byFlm };
   });
+
+  // =========================================================================
+  // === NEW LISTING — Name-based matching (case-insensitive) ===
+  // =========================================================================
+  // Build name -> set of periods (from Ethical rows only)
+  const nameEthicalPeriods = {};
+  const nameToRepCode = {};
   
-  const pairsByPeriod = {};
   daily.forEach(r => {
-    const matCode = Number(r['Material Code']);
-    const mat = matMap[matCode];
-    if (!mat || KPIS.indexOf(mat.sb) < 0) return;
-    const mn = MONTH_MAP[r['Short Cut']];
-    const p = (r['Year'] || 0) * 100 + mn;
+    // === FIX: case-insensitive Ethical filter ===
+    if (!isEthical(r['Dep'])) return;
+    const nm = normName(r['Customer Name']);
+    if (!nm) return;
+    const sc = String(r['Short Cut'] || '').trim();
+    const mn = MONTH_MAP[sc];
+    if (!mn) return;
+    const yr = Number(r['Year']) || 0;
+    if (!yr) return;
+    const p = yr * 100 + mn;
+    
+    if (!nameEthicalPeriods[nm]) nameEthicalPeriods[nm] = {};
+    nameEthicalPeriods[nm][p] = true;
+    
     const c = Number(r['Customer Code']);
-    if (!c) return;
-    if (!pairsByPeriod[p]) pairsByPeriod[p] = {};
-    pairsByPeriod[p][c + '|' + mat.sb] = mat.cat;
+    if (c && c !== 281000000) {
+      if (yr === 2026) {
+        nameToRepCode[nm] = c;
+      } else if (!nameToRepCode[nm]) {
+        nameToRepCode[nm] = c;
+      }
+    }
   });
-  
+  Logger.log('nameEthicalPeriods map size: ' + Object.keys(nameEthicalPeriods).length);
+
   const newByMonth = {};
   MONTHS.forEach(m => {
     const targetPeriod = 202600 + m;
-    const priorPeriods = [];
-    for (let i = 1; i <= 12; i++) {
+    
+    const priorPeriods = {};
+    for (let i = 1; i <= 11; i++) {
       const dm = m - i;
-      if (dm >= 1) priorPeriods.push(202600 + dm);
-      else priorPeriods.push(202500 + (12 + dm));
+      if (dm >= 1) priorPeriods[202600 + dm] = true;
+      else priorPeriods[202500 + (12 + dm)] = true;
     }
-    const priorPairs = {};
-    priorPeriods.forEach(p => {
-      Object.keys(pairsByPeriod[p] || {}).forEach(k => priorPairs[k] = true);
-    });
+
     const items = [];
     const flmCount = {}, srCount = {};
-    const currentPairs = pairsByPeriod[targetPeriod] || {};
-    Object.keys(currentPairs).forEach(key => {
-      if (priorPairs[key]) return;
-      const parts = key.split('|');
-      const c = Number(parts[0]);
-      const kpi = parts[1];
-      const cat = currentPairs[key];
+
+    Object.keys(nameEthicalPeriods).forEach(nm => {
+      const purchases = nameEthicalPeriods[nm];
+
+      if (!purchases[targetPeriod]) return;
+      
+      let hasPrior = false;
+      for (const pStr in priorPeriods) {
+        if (purchases[Number(pStr)]) { hasPrior = true; break; }
+      }
+      if (hasPrior) return;
+
+      const repCode = nameToRepCode[nm];
+      
       let srs = [];
-      if (SHARED[c]) srs = SHARED[c].filter(r => r.cat === cat).map(r => r.sr);
-      if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
-      srs.forEach(sr => srCount[sr] = (srCount[sr] || 0) + 1);
+      if (repCode && SHARED[repCode] && SHARED[repCode].length > 0) {
+        const seen = {};
+        SHARED[repCode].forEach(rule => {
+          if (!seen[rule.sr]) { seen[rule.sr] = true; srs.push(rule.sr); }
+        });
+      } else if (repCode && custDict[repCode] && custDict[repCode].sr) {
+        srs = [custDict[repCode].sr];
+      }
+
+      srs.forEach(sr => {
+        srCount[sr] = (srCount[sr] || 0) + 1;
+      });
+
       const flmsSeen = {};
       srs.forEach(sr => {
         const f = srToFlm[sr];
@@ -486,18 +610,24 @@ function buildDashboardPayload() {
       });
       if (Object.keys(flmsSeen).length === 0) {
         flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1;
+      } else {
+        Object.keys(flmsSeen).forEach(f => {
+          flmCount[f] = (flmCount[f] || 0) + 1;
+        });
       }
-      Object.keys(flmsSeen).forEach(f => flmCount[f] = (flmCount[f] || 0) + 1);
+
       items.push({
-        c: c, k: kpi, cat: cat,
+        c: repCode || null,
+        n: (repCode && custDict[repCode] && custDict[repCode].name) || nm,
         f: srs[0] ? srToFlm[srs[0]] : null,
-        sr: srs[0] || null, srs: srs,
-        n: (custDict[c] && custDict[c].name) || null,
+        sr: srs[0] || null,
+        srs: srs,
       });
     });
+
     newByMonth[m] = { items: items, byFlm: flmCount, bySr: srCount };
   });
-  
+
   const newTargetByMonth = {};
   MONTHS.forEach(m => {
     const lbl = MONTH_LABELS_SHORT[m-1];
@@ -518,8 +648,7 @@ function buildDashboardPayload() {
     });
     newTargetByMonth[m] = { bySr: bySr, byFlm: byFlm };
   });
-  
-  // ---- Lead targets per month (auto-extends as future month columns are filled) ----
+
   const leadTargetByMonth = {};
   MONTHS.forEach(m => {
     const lbl = MONTH_LABELS_SHORT[m-1];
@@ -540,19 +669,14 @@ function buildDashboardPayload() {
     });
     leadTargetByMonth[m] = { bySr: bySr, byFlm: byFlm };
   });
-  
-  // Backward-compat: keep Apr-only fields used by older dashboard code paths
+
   const leadTargetPerSr  = leadTargetByMonth[4] ? leadTargetByMonth[4].bySr  : {};
   const leadTargetPerFlm = leadTargetByMonth[4] ? leadTargetByMonth[4].byFlm : {};
-  
-  // ---- Lead ACTUALS per month (from Actual-Lead tab) ----
+
   const leadActualByMonth = {};
   let ldActual = [];
-  try {
-    ldActual = readSheet(imsSS, TAB_NAMES.leadActual);
-  } catch (e) {
-    Logger.log('Note: Actual-Lead tab not found - Lead actuals will be empty');
-  }
+  try { ldActual = readSheet(imsSS, TAB_NAMES.leadActual); }
+  catch (e) { Logger.log('Note: Actual-Lead tab not found'); }
   MONTHS.forEach(m => {
     const lbl = MONTH_LABELS_SHORT[m-1];
     const candidates = [
@@ -572,7 +696,7 @@ function buildDashboardPayload() {
     });
     leadActualByMonth[m] = { bySr: bySr, byFlm: byFlm };
   });
-  
+
   const subBrandCategory = {
     'PED PWD':'PND','PED RPB':'PND','SIM':'PND','STC':'PND','SM':'PND',
     'ENS PWD':'MND','ENS RPB':'MND','GLU PWD':'MND','GLU RPB':'MND','PRO':'MND',
@@ -592,7 +716,7 @@ function buildDashboardPayload() {
     });
     mndPndByMonth[m] = { pnd_a: pndA, pnd_t: pndT, mnd_a: mndA, mnd_t: mndT };
   });
-  
+
   const customers = [];
   Object.keys(custDict).forEach(c => {
     customers.push({
@@ -600,7 +724,7 @@ function buildDashboardPayload() {
       f: custDict[c].flm, sr: custDict[c].sr,
     });
   });
-  
+
   const kpiCustByMonth = {};
   MONTHS.forEach(m => {
     const subAlloc = allocated.filter(r => r.m === m);
@@ -620,7 +744,7 @@ function buildDashboardPayload() {
     });
     kpiCustByMonth[m] = recs;
   });
-  
+
   return {
     kpis: KPIS,
     flms: ['Chay Mengkong','In Lena','Sem Sokhom','Thong Kanha','Um Phana'],
@@ -633,10 +757,10 @@ function buildDashboardPayload() {
     activeTargetByMonth: activeTargetByMonth,
     newByMonth: newByMonth,
     newTargetByMonth: newTargetByMonth,
-    leadTargetPerSr: leadTargetPerSr,         // backward-compat (Apr only)
-    leadTargetPerFlm: leadTargetPerFlm,       // backward-compat (Apr only)
-    leadTargetByMonth: leadTargetByMonth,     // NEW: per-month lead targets
-    leadActualByMonth: leadActualByMonth,     // NEW: per-month lead actuals
+    leadTargetPerSr: leadTargetPerSr,
+    leadTargetPerFlm: leadTargetPerFlm,
+    leadTargetByMonth: leadTargetByMonth,
+    leadActualByMonth: leadActualByMonth,
     mndPndByMonth: mndPndByMonth,
     subBrandCategory: subBrandCategory,
     sharedCustomers: SHARED,
@@ -668,35 +792,25 @@ function readSheet(ss, name) {
 // =============================================================================
 // ADMIN UTILITIES — run from Apps Script editor
 // =============================================================================
-
-// Run after editing data in sheets to force a fresh fetch
 function clearCache() {
   CacheService.getScriptCache().remove('dashboard_data');
   Logger.log('Cache cleared');
 }
 
-// Run once to verify all 3 sheets are accessible
 function testConnections() {
   try {
     const ims = SpreadsheetApp.openById(SHEET_IDS.ims);
     Logger.log('OK IMS Targets: ' + ims.getName());
-    Logger.log('  Tabs: ' + ims.getSheets().map(s => s.getName()).join(' | '));
-    
     const daily = SpreadsheetApp.openById(SHEET_IDS.daily);
     Logger.log('OK Daily Sales: ' + daily.getName());
-    Logger.log('  Tabs: ' + daily.getSheets().map(s => s.getName()).join(' | '));
-    
     const mat = SpreadsheetApp.openById(SHEET_IDS.material);
     Logger.log('OK Material Code: ' + mat.getName());
-    Logger.log('  Tabs: ' + mat.getSheets().map(s => s.getName()).join(' | '));
-    
     Logger.log('SUCCESS: All 3 sheets accessible');
   } catch (e) {
     Logger.log('ERROR: ' + e.message);
   }
 }
 
-// Run to test full data build
 function testBuild() {
   const data = buildDashboardPayload();
   Logger.log('SRs: ' + data.srs.length);
@@ -705,17 +819,86 @@ function testBuild() {
   Logger.log('Actuals: ' + data.actuals.length);
   const aprT = data.targets.filter(r => r.m === 4).reduce((s, r) => s + r.t, 0);
   const aprA = data.actuals.filter(r => r.m === 4).reduce((s, r) => s + r.v, 0);
-  Logger.log('April Target: ' + aprT);
-  Logger.log('April Actual: ' + aprA);
-  Logger.log('April PND/MND: ' + JSON.stringify(data.mndPndByMonth[4]));
-  
-  // NEW: Lead targets and actuals per month
+  Logger.log('April Target: ' + aprT + ' / Actual: ' + aprA);
+
+  Logger.log('--- New Listing per month (name-based matching) ---');
+  MONTHS.forEach(m => {
+    const nb = data.newByMonth[m];
+    if (!nb) return;
+    const total = nb.items.length;
+    const credits = Object.values(nb.bySr).reduce((s,v)=>s+v,0);
+    if (total > 0) Logger.log('  Month ' + m + ': ' + total + ' new HCPs, ' + credits + ' SR credits');
+  });
+
   Logger.log('--- Lead per month ---');
-  [1,2,3,4,5,6,7,8,9,10,11,12].forEach(m => {
+  MONTHS.forEach(m => {
     const tT = data.leadTargetByMonth[m] ? Object.values(data.leadTargetByMonth[m].bySr).reduce((s,v)=>s+v,0) : 0;
     const tA = data.leadActualByMonth[m] ? Object.values(data.leadActualByMonth[m].bySr).reduce((s,v)=>s+v,0) : 0;
     if (tT > 0 || tA > 0) {
       Logger.log('  Month ' + m + ': target=' + tT + ' / actual=' + tA);
+    }
+  });
+}
+
+// === Diagnostic to check if Trade rows are leaking through ===
+function debugEthicalFilter() {
+  const dailySS = SpreadsheetApp.openById(SHEET_IDS.daily);
+  const daily = readSheet(dailySS, TAB_NAMES.daily);
+  
+  const uniqueDeps = {};
+  daily.forEach(r => {
+    const raw = r['Dep'];
+    const key = '"' + String(raw === null || raw === undefined ? '(empty)' : raw) + '"';
+    uniqueDeps[key] = (uniqueDeps[key] || 0) + 1;
+  });
+  
+  Logger.log('=== Unique values in Dep column (and row counts) ===');
+  Object.keys(uniqueDeps).forEach(k => {
+    Logger.log('  ' + k + ' : ' + uniqueDeps[k] + ' rows');
+  });
+  
+  // Now check April 2026 totals - both ways
+  let aprEthicalSum = 0;
+  let aprAllSum = 0;
+  let aprEthicalRows = 0;
+  let aprAllRows = 0;
+  
+  daily.forEach(r => {
+    if (Number(r['Year']) !== 2026) return;
+    const mn = String(r['Short Cut']).trim();
+    if (mn !== 'Apr' && mn !== 'April') return;
+    const sales = Number(r['Total Act. Sales']) || 0;
+    aprAllSum += sales;
+    aprAllRows++;
+    const dep = String(r['Dep'] || '').trim().toUpperCase();
+    if (dep === 'ETHICAL') {
+      aprEthicalSum += sales;
+      aprEthicalRows++;
+    }
+  });
+  
+  Logger.log('');
+  Logger.log('=== April 2026 ===');
+  Logger.log('  All rows: ' + aprAllRows + ' = ' + aprAllSum.toLocaleString());
+  Logger.log('  Ethical rows: ' + aprEthicalRows + ' = ' + aprEthicalSum.toLocaleString());
+  Logger.log('  Trade (everything else): ' + (aprAllSum - aprEthicalSum).toLocaleString());
+}
+
+function debugThayDararith() {
+  const data = buildDashboardPayload();
+  Logger.log('=== SRs matching "Thay Dararith" ===');
+  data.srs.forEach(s => {
+    if (String(s.name || '').toLowerCase().indexOf('thay dararith') >= 0) {
+      Logger.log('  Code: ' + s.code + ' | Name: "' + s.name + '" | FLM: ' + s.flm);
+    }
+  });
+  
+  Logger.log('');
+  Logger.log('=== April Actuals for Thay Dararith SRs ===');
+  data.actuals.filter(r => r.m === 4).forEach(r => {
+    const sr = data.srs.find(s => s.code === r.sr);
+    if (sr && String(sr.name || '').toLowerCase().indexOf('thay dararith') >= 0) {
+      Logger.log('  SR ' + r.sr + ' (' + sr.name + ') | KPI ' + r.k + ' | Value ' + r.v);
     }
   });
 }
