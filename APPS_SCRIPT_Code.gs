@@ -197,7 +197,7 @@ function buildDashboardPayload() {
   const tokenize = (s) => {
     if (!s) return [];
     return String(s).toLowerCase()
-      .replace(/\s*-\s*vacancy.*/g, '').replace(/&/g, ' ')
+      .replace(/&/g, ' ')
       .split(/[,;\s]+/).filter(p => p && p.length > 1);
   };
   
