@@ -779,6 +779,80 @@ function Dashboard({ user, raw, onLogout }) {
               </table>
             </div>
           </Panel>
+
+          <Panel title="SR Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)"
+            action={<ExportBtn onClick={() => {
+              const rows = C.srScorecards.map(r => ({
+                "SR": r.name,
+                "FLM": r.flm,
+                "Shop Target": Math.round(r.shopTarget),
+                "Shop Actual": Math.round(r.shopActual),
+                "Shop %": r.shopTarget > 0 ? ((r.shopActual/r.shopTarget)*100).toFixed(0) + "%" : "—",
+                "Active Target": r.activeTarget,
+                "Active Actual": r.activeActual,
+                "Active %": r.activeTarget > 0 ? ((r.activeActual/r.activeTarget)*100).toFixed(0) + "%" : "—",
+                "New Target": r.newTarget,
+                "New Actual": r.newActual,
+                "New %": r.newTarget > 0 ? ((r.newActual/r.newTarget)*100).toFixed(0) + "%" : "—",
+                "NU Target": r.leadTarget,
+                "NU Actual": r.leadActual,
+                "NU %": r.leadTarget > 0 ? ((r.leadActual/r.leadTarget)*100).toFixed(0) + "%" : "—",
+              }));
+              exportToExcel(rows, `SRCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "SR Coverage");
+            }} />}>
+            <div style={{overflowX:"auto"}}>
+              <table style={tblStyle}>
+                <thead><tr style={{background:"#f9fafb"}}>
+                  <th style={thStyle}>SR</th>
+                  <th style={thStyleR}>Shop Tgt</th>
+                  <th style={thStyleR}>Shop Act</th>
+                  <th style={thStyleR}>%</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Active Tgt</th>
+                  <th style={thStyleR}>Active Act</th>
+                  <th style={thStyleR}>%</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>New Tgt</th>
+                  <th style={thStyleR}>New Act</th>
+                  <th style={thStyleR}>%</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>NU Tgt</th>
+                  <th style={thStyleR}>NU Act</th>
+                  <th style={thStyleR}>%</th>
+                </tr></thead>
+                <tbody>
+                  {C.srScorecards.map(r => {
+                    const sP = pct(r.shopActual, r.shopTarget);
+                    const aP = pct(r.activeActual, r.activeTarget);
+                    const nP = pct(r.newActual, r.newTarget);
+                    const lP = pct(r.leadActual, r.leadTarget);
+                    return (
+                      <tr key={r.code} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={tdStyle}><strong>{r.name}</strong></td>
+                        <td style={tdStyleR}>{fmt(r.shopTarget)}</td>
+                        <td style={tdStyleR}>{fmt(r.shopActual)}</td>
+                        <td style={{...tdStyleR, color:pctColor(sP), fontWeight:600}}>
+                          {r.shopTarget > 0 ? sP.toFixed(0) + "%" : "—"}
+                        </td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.activeTarget}</td>
+                        <td style={tdStyleR}>{r.activeActual}</td>
+                        <td style={{...tdStyleR, color:pctColor(aP), fontWeight:600}}>
+                          {r.activeTarget > 0 ? aP.toFixed(0) + "%" : "—"}
+                        </td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.newTarget}</td>
+                        <td style={tdStyleR}>{r.newActual}</td>
+                        <td style={{...tdStyleR, color:pctColor(nP), fontWeight:600}}>
+                          {r.newTarget > 0 ? nP.toFixed(0) + "%" : "—"}
+                        </td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.leadTarget}</td>
+                        <td style={tdStyleR}>{r.leadActual}</td>
+                        <td style={{...tdStyleR, color:pctColor(lP), fontWeight:600}}>
+                          {r.leadTarget > 0 ? lP.toFixed(0) + "%" : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
         </>
       )}
 
