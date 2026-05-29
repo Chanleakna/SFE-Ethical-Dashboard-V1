@@ -783,7 +783,8 @@ function Dashboard({ user, raw, onLogout }) {
           <Panel title="SR Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)"
             action={<ExportBtn onClick={() => {
               const rows = C.srScorecards.map(r => ({
-                "SR": r.name,
+                "SR Code": r.code,
+                "SR Name": r.name,
                 "FLM": r.flm,
                 "Shop Target": Math.round(r.shopTarget),
                 "Shop Actual": Math.round(r.shopActual),
@@ -803,7 +804,8 @@ function Dashboard({ user, raw, onLogout }) {
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
-                  <th style={thStyle}>SR</th>
+                  <th style={thStyleR}>SR Code</th>
+                  <th style={thStyle}>SR Name</th>
                   <th style={thStyleR}>Shop Tgt</th>
                   <th style={thStyleR}>Shop Act</th>
                   <th style={thStyleR}>%</th>
@@ -825,6 +827,7 @@ function Dashboard({ user, raw, onLogout }) {
                     const lP = pct(r.leadActual, r.leadTarget);
                     return (
                       <tr key={r.code} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={tdStyleR}>{r.code}</td>
                         <td style={tdStyle}><strong>{r.name}</strong></td>
                         <td style={tdStyleR}>{fmt(r.shopTarget)}</td>
                         <td style={tdStyleR}>{fmt(r.shopActual)}</td>

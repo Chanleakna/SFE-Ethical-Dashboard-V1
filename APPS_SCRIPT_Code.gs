@@ -285,31 +285,9 @@ function buildDashboardPayload() {
     }
   });
 
-  const dailySrFlm = {};
-  daily.forEach(r => {
-    if (!r['SR'] || !r['FLM']) return;
-    const first = String(r['SR']).split(/[,;]/)[0].trim();
-    const f = normFlm(r['FLM']);
-    if (f && !dailySrFlm[first]) dailySrFlm[first] = f;
-  });
-
-  Object.keys(dailySrNames).forEach(daiName => {
-    if (srMatch[daiName]) return;
-    let hash = 0;
-    for (let i = 0; i < daiName.length; i++) {
-      hash = ((hash << 5) - hash) + daiName.charCodeAt(i);
-      hash = hash | 0;
-    }
-    const vacCode = -Math.abs(hash) % 100000;
-    srMatch[daiName] = vacCode;
-    const realFlm = dailySrFlm[daiName] || 'Vacancy';
-    srMaster.push({
-      code: vacCode,
-      name: daiName + (realFlm === 'Vacancy' ? ' (Vacancy)' : ''),
-      flm: realFlm,
-    });
-    srToFlm[vacCode] = realFlm;
-  });
+  // NOTE: SRs found in daily sales but NOT matched to the Ethical master list
+  // are intentionally NOT added. Only Ethical Sales SRs (from Target Set) appear
+  // on the dashboard. Unmatched daily-sales names fall through as Unassigned.
 
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
   const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
