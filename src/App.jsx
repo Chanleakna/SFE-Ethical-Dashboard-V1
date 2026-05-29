@@ -247,7 +247,13 @@ function Login({ onLogin }) {
 }
 
 function Dashboard({ user, raw, onLogout }) {
-  const RAW = raw;
+  // Show only Ethical-master SRs. Auto-detected SRs (found in daily sales but
+  // not in the Target Set) are assigned negative codes by the backend, so we
+  // filter them out here too — they disappear even before the backend redeploys.
+  const RAW = useMemo(() => ({
+    ...raw,
+    srs: (raw.srs || []).filter(s => Number(s.code) > 0),
+  }), [raw]);
   const [tick, setTick] = useState(0);
   const [auto, setAuto] = useState(true);
   const [tab, setTab] = useState("summary");
