@@ -305,7 +305,7 @@ function buildDashboardPayload() {
     const realFlm = dailySrFlm[daiName] || 'Vacancy';
     srMaster.push({
       code: vacCode,
-      name: daiName + (realFlm === 'Vacancy' ? ' (Vacancy)' : ' (Auto)'),
+      name: daiName + (realFlm === 'Vacancy' ? ' (Vacancy)' : ''),
       flm: realFlm,
     });
     srToFlm[vacCode] = realFlm;
