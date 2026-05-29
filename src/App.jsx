@@ -253,8 +253,8 @@ function Dashboard({ user, raw, onLogout }) {
   const [tab, setTab] = useState("summary");
 
   // Filters
-  const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(4);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [flm, setFlm] = useState(user.role === "FLM" ? user.flm : "All");
   const [srFilter, setSrFilter] = useState("All");
   const [custFilter, setCustFilter] = useState("All");
@@ -502,7 +502,9 @@ function Dashboard({ user, raw, onLogout }) {
       }}>
         <FilterField label="Year">
           <select value={year} onChange={e => setYear(Number(e.target.value))} style={selectStyle}>
-            <option value={2026}>2026</option>
+            {Array.from(new Set([2026, new Date().getFullYear()]))
+              .sort((a, b) => a - b)
+              .map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </FilterField>
         <FilterField label="Month">
