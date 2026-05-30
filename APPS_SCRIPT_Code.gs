@@ -34,6 +34,7 @@ const TAB_NAMES = {
   leadTarget:   'Target-Lead',
   leadActual:   'Actual-Lead',
   users:        'Users',
+  loginLog:     'Login_Log',
   shared:       'Shared_Customers',
   shopCoverage: 'Shop_Coverage',
   hcpHco:       'HCP_HCO_Lookup',
@@ -90,17 +91,39 @@ function handleLogin(code) {
   const flmCol  = headers.indexOf('FLM');
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][codeCol]) === String(code)) {
-      return {
-        ok: true,
-        user: {
-          role: data[i][roleCol],
-          name: data[i][nameCol],
-          flm:  data[i][flmCol] || null,
-        },
+      const user = {
+        role: data[i][roleCol],
+        name: data[i][nameCol],
+        flm:  data[i][flmCol] || null,
       };
+      logAccess(ss, { code: code, name: user.name, role: user.role, flm: user.flm, status: 'success' });
+      return { ok: true, user: user };
     }
   }
+  logAccess(ss, { code: code, name: '', role: '', flm: '', status: 'invalid code' });
   return { ok: false, error: 'Invalid code' };
+}
+
+// Append a login attempt to the Login_Log tab (auto-creates it). Never throws.
+function logAccess(ss, entry) {
+  try {
+    let log = ss.getSheetByName(TAB_NAMES.loginLog);
+    if (!log) {
+      log = ss.insertSheet(TAB_NAMES.loginLog);
+      log.appendRow(['Timestamp', 'Name', 'Role', 'FLM', 'Code', 'Status']);
+      log.setFrozenRows(1);
+    }
+    log.appendRow([
+      new Date(),
+      entry.name || '',
+      entry.role || '',
+      entry.flm || '',
+      String(entry.code || ''),
+      entry.status || '',
+    ]);
+  } catch (e) {
+    Logger.log('logAccess failed: ' + e.message);
+  }
 }
 
 // =============================================================================
