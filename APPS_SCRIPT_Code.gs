@@ -59,6 +59,7 @@ function doGet(e) {
     }
     if (action === 'login')   return jsonResponse(handleLogin(e.parameter.code));
     if (action === 'data')    return jsonResponse(getDashboardData());
+    if (action === 'accessLog') return jsonResponse(getAccessLog(e.parameter.code));
     if (action === 'health')  return jsonResponse({ ok: true, time: new Date().toISOString() });
     if (action === 'clearCache') {
       CacheService.getScriptCache().remove('dashboard_data');
@@ -124,6 +125,46 @@ function logAccess(ss, entry) {
   } catch (e) {
     Logger.log('logAccess failed: ' + e.message);
   }
+}
+
+// Returns the login history. Admin-only: the caller's code must map to an Admin user.
+function getAccessLog(code) {
+  if (!code) return { ok: false, error: 'no code' };
+  const ss = SpreadsheetApp.openById(SHEET_IDS.ims);
+  const users = ss.getSheetByName(TAB_NAMES.users);
+  if (!users) return { ok: false, error: 'Users tab not found in IMS sheet' };
+  const udata = users.getDataRange().getValues();
+  const uh = udata[0];
+  const cCol = uh.indexOf('Code'), rCol = uh.indexOf('Role');
+  let role = null;
+  for (let i = 1; i < udata.length; i++) {
+    if (String(udata[i][cCol]) === String(code)) { role = udata[i][rCol]; break; }
+  }
+  if (String(role).trim().toLowerCase() !== 'admin') {
+    return { ok: false, error: 'Admin access required' };
+  }
+
+  const log = ss.getSheetByName(TAB_NAMES.loginLog);
+  if (!log) return { ok: true, rows: [] };
+  const data = log.getDataRange().getValues();
+  if (data.length < 2) return { ok: true, rows: [] };
+  const h = data[0];
+  const tsCol = h.indexOf('Timestamp'), nCol = h.indexOf('Name'),
+        roCol = h.indexOf('Role'), fCol = h.indexOf('FLM'),
+        coCol = h.indexOf('Code'), sCol = h.indexOf('Status');
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    const ts = data[i][tsCol];
+    rows.push({
+      ts: ts instanceof Date ? ts.toISOString() : String(ts),
+      name: data[i][nCol] || '',
+      role: data[i][roCol] || '',
+      flm: data[i][fCol] || '',
+      code: String(data[i][coCol] || ''),
+      status: data[i][sCol] || '',
+    });
+  }
+  return { ok: true, rows: rows };
 }
 
 // =============================================================================
