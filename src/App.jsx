@@ -165,7 +165,7 @@ function Login({ onLogin }) {
       const data = await res.json();
       setLoading(false);
       if (data.ok && data.user) {
-        onLogin(data.user);
+        onLogin({ ...data.user, code: pw });
       } else {
         setError(data.error || "Incorrect password");
         setPw("");
@@ -270,6 +270,25 @@ function Dashboard({ user, raw, onLogout }) {
   const [expanded, setExpanded] = useState({});
 
   const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  // Admin-only access log
+  const [accessLog, setAccessLog] = useState(null);
+  const [accessErr, setAccessErr] = useState(null);
+  useEffect(() => {
+    if (tab !== "access" || user.role !== "Admin") return;
+    let cancelled = false;
+    setAccessErr(null);
+    setAccessLog(null);
+    fetch(API_URL + "?action=accessLog&code=" + encodeURIComponent(user.code || ""))
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d && d.ok) setAccessLog(d.rows || []);
+        else setAccessErr((d && d.error) || "Failed to load access log");
+      })
+      .catch(e => { if (!cancelled) setAccessErr(e.message || "Failed to load access log"); });
+    return () => { cancelled = true; };
+  }, [tab, tick]);
 
   useEffect(() => {
     if (!auto) return;
@@ -592,6 +611,10 @@ function Dashboard({ user, raw, onLogout }) {
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
         <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
           <TabBtn label="📈 Trend" v="trend" cur={tab} on={setTab} />
+        {user.role === "Admin" && <>
+          <Sep />
+          <TabBtn label="🔑 Access Log" v="access" cur={tab} on={setTab} />
+        </>}
       </div>
 
       {/* ============ SUMMARY ============ */}
@@ -2466,6 +2489,152 @@ function Dashboard({ user, raw, onLogout }) {
             </Panel>
           );
         }
+      })()}
+
+      {/* ============ ACCESS LOG (admin only) ============ */}
+      {tab === "access" && (() => {
+        if (user.role !== "Admin") return null;
+        if (accessErr) return (
+          <Panel title="🔑 Access Log — Error">
+            <div style={{padding:20, color:"#dc2626", fontSize:12}}>{accessErr}</div>
+          </Panel>
+        );
+        if (accessLog === null) return (
+          <Panel title="🔑 Access Log">
+            <div style={{padding:20, color:"#6b7280", fontSize:12}}>Loading access log…</div>
+          </Panel>
+        );
+
+        const rows = accessLog;
+        const dayObj = (ts) => { const d = new Date(ts); return isNaN(d.getTime()) ? null : d; };
+        const dayKey = (ts) => { const d = dayObj(ts); return d ? d.toLocaleDateString() : String(ts).slice(0,10); };
+        const fmtTs = (ts) => { const d = dayObj(ts); return d ? d.toLocaleString() : String(ts); };
+        const succ = rows.filter(r => String(r.status).toLowerCase() === "success");
+        const todayStr = new Date().toDateString();
+
+        const byUserMap = {};
+        succ.forEach(r => {
+          const key = r.name || ("Code " + r.code);
+          if (!byUserMap[key]) byUserMap[key] = { name: key, role: r.role, flm: r.flm, count: 0, last: null };
+          byUserMap[key].count++;
+          const d = dayObj(r.ts);
+          if (d && (!byUserMap[key].last || d > byUserMap[key].last)) byUserMap[key].last = d;
+        });
+        const byUser = Object.values(byUserMap).sort((a,b) => b.count - a.count);
+
+        const byDayMap = {};
+        succ.forEach(r => {
+          const k = dayKey(r.ts);
+          if (!byDayMap[k]) byDayMap[k] = { day: k, count: 0, users: new Set(), sort: dayObj(r.ts) };
+          byDayMap[k].count++;
+          byDayMap[k].users.add(r.name || r.code);
+        });
+        const byDay = Object.values(byDayMap)
+          .map(d => ({ day: d.day, count: d.count, users: d.users.size, sort: d.sort }))
+          .sort((a,b) => (b.sort ? b.sort.getTime() : 0) - (a.sort ? a.sort.getTime() : 0));
+
+        const totalLogins = succ.length;
+        const uniqueUsers = byUser.length;
+        const loginsToday = succ.filter(r => { const d = dayObj(r.ts); return d && d.toDateString() === todayStr; }).length;
+        const failed = rows.length - succ.length;
+        const recent = [...rows]
+          .sort((a,b) => ((dayObj(b.ts)?dayObj(b.ts).getTime():0) - (dayObj(a.ts)?dayObj(a.ts).getTime():0)))
+          .slice(0, 100);
+
+        return (
+          <>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:10}}>
+              <Metric label="Total Logins" value={String(totalLogins)} accent="#2563eb" />
+              <Metric label="Unique Users" value={String(uniqueUsers)} accent="#10b981" />
+              <Metric label="Logins Today" value={String(loginsToday)} accent="#f59e0b" />
+              <Metric label="Failed Attempts" value={String(failed)} accent="#dc2626" />
+            </div>
+
+            <Panel title="Logins by Day"
+              action={<ExportBtn onClick={() => exportToExcel(
+                byDay.map(d => ({ "Date": d.day, "Logins": d.count, "Unique Users": d.users })),
+                "AccessLog_ByDay.xlsx", "By Day")} />}>
+              <div style={{overflowX:"auto"}}>
+                <table style={tblStyle}>
+                  <thead><tr style={{background:"#f9fafb"}}>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyleR}>Logins</th>
+                    <th style={thStyleR}>Unique Users</th>
+                  </tr></thead>
+                  <tbody>
+                    {byDay.length === 0 && <tr><td style={tdStyle} colSpan={3}>No logins recorded yet.</td></tr>}
+                    {byDay.map(d => (
+                      <tr key={d.day} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={tdStyle}>{d.day}</td>
+                        <td style={tdStyleR}>{d.count}</td>
+                        <td style={tdStyleR}>{d.users}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <Panel title="By User"
+              action={<ExportBtn onClick={() => exportToExcel(
+                byUser.map(u => ({ "User": u.name, "Role": u.role, "FLM": u.flm, "Logins": u.count, "Last Login": u.last ? u.last.toLocaleString() : "" })),
+                "AccessLog_ByUser.xlsx", "By User")} />}>
+              <div style={{overflowX:"auto"}}>
+                <table style={tblStyle}>
+                  <thead><tr style={{background:"#f9fafb"}}>
+                    <th style={thStyle}>User</th>
+                    <th style={thStyle}>Role</th>
+                    <th style={thStyle}>FLM</th>
+                    <th style={thStyleR}>Logins</th>
+                    <th style={thStyle}>Last Login</th>
+                  </tr></thead>
+                  <tbody>
+                    {byUser.length === 0 && <tr><td style={tdStyle} colSpan={5}>No logins recorded yet.</td></tr>}
+                    {byUser.map(u => (
+                      <tr key={u.name} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={tdStyle}><strong>{u.name}</strong></td>
+                        <td style={tdStyle}>{u.role || "—"}</td>
+                        <td style={tdStyle}>{u.flm || "—"}</td>
+                        <td style={tdStyleR}>{u.count}</td>
+                        <td style={tdStyle}>{u.last ? u.last.toLocaleString() : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <Panel title="Recent Activity (last 100)"
+              action={<ExportBtn onClick={() => exportToExcel(
+                [...rows].sort((a,b) => ((dayObj(b.ts)?dayObj(b.ts).getTime():0) - (dayObj(a.ts)?dayObj(a.ts).getTime():0)))
+                  .map(r => ({ "Time": fmtTs(r.ts), "Name": r.name, "Role": r.role, "FLM": r.flm, "Code": r.code, "Status": r.status })),
+                "AccessLog_Full.xlsx", "Access Log")} />}>
+              <div style={{overflowX:"auto"}}>
+                <table style={tblStyle}>
+                  <thead><tr style={{background:"#f9fafb"}}>
+                    <th style={thStyle}>Time</th>
+                    <th style={thStyle}>Name</th>
+                    <th style={thStyle}>Role</th>
+                    <th style={thStyle}>FLM</th>
+                    <th style={thStyle}>Status</th>
+                  </tr></thead>
+                  <tbody>
+                    {recent.length === 0 && <tr><td style={tdStyle} colSpan={5}>No activity yet.</td></tr>}
+                    {recent.map((r, i) => (
+                      <tr key={i} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={tdStyle}>{fmtTs(r.ts)}</td>
+                        <td style={tdStyle}>{r.name || "—"}</td>
+                        <td style={tdStyle}>{r.role || "—"}</td>
+                        <td style={tdStyle}>{r.flm || "—"}</td>
+                        <td style={{...tdStyle, color: String(r.status).toLowerCase()==="success" ? "#059669" : "#dc2626", fontWeight:600}}>{r.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          </>
+        );
       })()}
 
       <div style={{marginTop:14, fontSize:10, color:"#9ca3af", textAlign:"center"}}>
