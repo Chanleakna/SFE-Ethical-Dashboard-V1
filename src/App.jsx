@@ -2409,6 +2409,9 @@ function Dashboard({ user, raw, onLogout }) {
 
       {/* ============ CUSTOMER SALES (monthly matrix + lapsed analysis) ============ */}
       {tab === "custsales" && (() => {
+        if (!RAW.customerMonthly) return (
+          <RedeployNotice title="📅 Customer Sales" feature="The Customer Sales matrix" />
+        );
         const maxP = RAW.customerMonthlyMaxPeriod || (year * 100 + month);
         const periods = [];
         { let y = 2025, mm = 1; while (y * 100 + mm <= maxP) { periods.push(y * 100 + mm); mm++; if (mm > 12) { mm = 1; y++; } } }
@@ -2530,6 +2533,9 @@ function Dashboard({ user, raw, onLogout }) {
       {/* ============ ACCESS LOG (admin only) ============ */}
       {tab === "access" && (() => {
         if (user.role !== "Admin") return null;
+        if (accessErr && /unknown action|not found/i.test(accessErr)) return (
+          <RedeployNotice title="🔑 Access Log" feature="The Access Log" />
+        );
         if (accessErr) return (
           <Panel title="🔑 Access Log — Error">
             <div style={{padding:20, color:"#dc2626", fontSize:12}}>{accessErr}</div>
@@ -2901,6 +2907,27 @@ function CoverageRanking({ title, rows, onExport }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </Panel>
+  );
+}
+
+// Shown when a tab needs backend code that hasn't been redeployed yet.
+function RedeployNotice({ title, feature }) {
+  return (
+    <Panel title={title}>
+      <div style={{padding:"16px 18px", background:"#fffbeb", border:"1px solid #fcd34d", borderRadius:8, color:"#92400e", fontSize:12.5, lineHeight:1.6}}>
+        <div style={{fontWeight:700, marginBottom:6}}>⏳ Backend update needed</div>
+        <div>
+          {feature} needs the latest Apps Script backend, which hasn't been deployed yet.
+          The dashboard front-end is up to date, but the Google Apps Script must be
+          re-deployed for this data to load.
+        </div>
+        <div style={{marginTop:8, fontSize:11, color:"#a16207"}}>
+          In the Apps Script editor: paste the latest <code>APPS_SCRIPT_Code.gs</code>, then
+          <strong> Deploy → Manage deployments → New version → Deploy</strong>, then open
+          <code> …/exec?action=clearCache</code> once and reload.
+        </div>
       </div>
     </Panel>
   );
