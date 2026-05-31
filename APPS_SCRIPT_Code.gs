@@ -486,7 +486,8 @@ function buildDashboardPayload() {
     if (Number(r['Year']) !== 2026) return;
     const cust = Number(r['Customer Code']);
     const cat = mat.cat;
-    const sales = Number(r['Total Act. Sales']) || 0;
+    // Ignore negative sales (returns / credit notes) — they don't reduce actuals.
+    const sales = Math.max(0, Number(r['Total Act. Sales']) || 0);
     const flm = normFlm(r['FLM']);
     const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
     const dailySr = srMatch[srFirst] || null;
@@ -540,7 +541,8 @@ function buildDashboardPayload() {
     const c = Number(r['Customer Code']);
     if (!c) return;
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
-    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + (Number(r['Total Act. Sales']) || 0);
+    // Ignore negative sales (returns / credit notes) so they don't reduce actuals.
+    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + Math.max(0, Number(r['Total Act. Sales']) || 0);
   });
 
   // === SHOP AROUND ===
