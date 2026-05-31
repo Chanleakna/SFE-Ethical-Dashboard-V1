@@ -46,11 +46,17 @@ const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 const CACHE_SECONDS = 300;
 
 // === Daily email import (auto-ingest the morning sales email) ===
-// The script reads the latest Excel attachment from this sender and REPLACES the
-// Export tab with its contents, then refreshes the dashboard cache.
+// NOTE: Apps Script can only read GMAIL (the Google account that owns this
+// script) — it cannot read Outlook/Microsoft mailboxes. If your daily sales
+// email arrives in Outlook, auto-forward (or redirect) it to this Gmail address,
+// then match it below. Configure at least ONE of: gmailLabel / senderEmail /
+// subjectContains. gmailLabel (a Gmail filter + label) is the most reliable for
+// forwarded mail. The script reads the latest matching Excel attachment and
+// REPLACES the Export tab with its contents, then refreshes the dashboard cache.
 const DAILY_IMPORT = {
-  senderEmail:     'REPLACE_WITH_SENDER@example.com', // exact "From" address of the morning email
-  subjectContains: '',  // optional: only match emails whose subject contains this text (leave '' to match any)
+  gmailLabel:      '',  // e.g. 'daily-sales' — recommended: add a Gmail filter that labels the forwarded email
+  senderEmail:     '',  // e.g. the original sender, OR your Outlook address if you forward it
+  subjectContains: '',  // optional subject text (matches even with FW:/RE: prefixes)
   searchWindowDays: 2,  // look back this many days for the latest matching email
 };
 
@@ -182,19 +188,25 @@ function getAccessLog(code) {
 // the Export tab with its contents, then clears the dashboard cache.
 //
 // ONE-TIME SETUP:
+//   0. Outlook only: add a rule to auto-forward/redirect the daily sales email
+//      to the Gmail address that owns this script. (Optionally add a Gmail
+//      filter that applies a label to it, e.g. 'daily-sales'.)
 //   1. Apps Script editor → Services (＋) → add "Drive API" (advanced service).
-//   2. Set DAILY_IMPORT.senderEmail (top of this file).
+//   2. Set DAILY_IMPORT.gmailLabel / senderEmail / subjectContains (top of file).
 //   3. Run importDailyFromEmail() once manually to grant Gmail/Drive access.
 //   4. Run installDailyImportTrigger() once to schedule it every morning.
 // =============================================================================
 function importDailyFromEmail() {
   const cfg = DAILY_IMPORT;
-  if (!cfg.senderEmail || cfg.senderEmail.indexOf('REPLACE') === 0) {
-    throw new Error('Set DAILY_IMPORT.senderEmail at the top of the script first.');
+  if (!cfg.gmailLabel && !cfg.senderEmail && !cfg.subjectContains) {
+    throw new Error('Configure at least one of DAILY_IMPORT.gmailLabel / senderEmail / subjectContains.');
   }
 
-  let query = 'from:' + cfg.senderEmail + ' has:attachment newer_than:' + cfg.searchWindowDays + 'd';
-  if (cfg.subjectContains) query += ' subject:("' + cfg.subjectContains + '")';
+  const parts = ['has:attachment', 'newer_than:' + cfg.searchWindowDays + 'd'];
+  if (cfg.gmailLabel)      parts.push('label:' + cfg.gmailLabel);
+  if (cfg.senderEmail)     parts.push('from:' + cfg.senderEmail);
+  if (cfg.subjectContains) parts.push('subject:("' + cfg.subjectContains + '")');
+  const query = parts.join(' ');
 
   const threads = GmailApp.search(query, 0, 20);
   if (!threads.length) {
