@@ -893,12 +893,46 @@ function buildDashboardPayload() {
     kpiCustByMonth[m] = recs;
   });
 
+  // =========================================================================
+  // === CUSTOMER MONTHLY SALES MATRIX (Jan 2025 → latest period present) ===
+  // Per-customer Ethical sales by Year-Month, used by the Customer Sales tab
+  // (heatmap matrix + 3M/6M/12M "did not purchase" analysis). Negative sales
+  // (returns/credit notes) are clamped to 0, consistent with the other actuals.
+  // =========================================================================
+  const custMonthly = {};
+  let maxPeriod = 202501; // YYYYMM
+  daily.forEach(r => {
+    if (!isEthical(r['Dep'])) return;
+    const c = Number(r['Customer Code']);
+    if (!c) return;
+    const mn = MONTH_MAP[r['Short Cut']];
+    if (!mn) return;
+    const yr = Number(r['Year']) || 0;
+    const period = yr * 100 + mn;
+    if (period < 202501) return; // from Jan 2025 onward
+    const sales = Math.max(0, Number(r['Total Act. Sales']) || 0);
+    if (!custMonthly[c]) {
+      const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+      custMonthly[c] = {
+        c: c,
+        n: r['Customer Name'] || ('Customer ' + c),
+        sr: srMatch[srFirst] || (custDict[c] && custDict[c].sr) || null,
+        f: normFlm(r['FLM']) || (custDict[c] && custDict[c].flm) || null,
+        p: {},
+      };
+    }
+    custMonthly[c].p[period] = (custMonthly[c].p[period] || 0) + sales;
+    if (period > maxPeriod) maxPeriod = period;
+  });
+
   return {
     kpis: KPIS,
     flms: ['Chay Mengkong','In Lena','Sem Sokhom','Thong Kanha','Um Phana'],
     srs: srMaster, customers: customers,
     targets: allTargets, actuals: actuals,
     months: MONTHS,
+    customerMonthly: Object.keys(custMonthly).map(k => custMonthly[k]),
+    customerMonthlyMaxPeriod: maxPeriod,
     kpiCustByMonth: kpiCustByMonth,
     shopByMonth: shopByMonth,
     activeByMonth: activeByMonth,

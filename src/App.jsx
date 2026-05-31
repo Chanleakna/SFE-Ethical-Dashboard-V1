@@ -265,6 +265,7 @@ function Dashboard({ user, raw, onLogout }) {
   const [srFilter, setSrFilter] = useState("All");
   const [custFilter, setCustFilter] = useState("All");
   const [custSearch, setCustSearch] = useState("");
+  const [lapseFilter, setLapseFilter] = useState("all"); // Customer Sales tab: all / 3 / 6 / 12
 
   // Expanded FLM rows
   const [expanded, setExpanded] = useState({});
@@ -611,6 +612,7 @@ function Dashboard({ user, raw, onLogout }) {
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
         <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
           <TabBtn label="📈 Trend" v="trend" cur={tab} on={setTab} />
+          <TabBtn label="📅 Cust Sales" v="custsales" cur={tab} on={setTab} />
         {user.role === "Admin" && <>
           <Sep />
           <TabBtn label="🔑 Access Log" v="access" cur={tab} on={setTab} />
@@ -2403,6 +2405,126 @@ function Dashboard({ user, raw, onLogout }) {
             </Panel>
           );
         }
+      })()}
+
+      {/* ============ CUSTOMER SALES (monthly matrix + lapsed analysis) ============ */}
+      {tab === "custsales" && (() => {
+        const maxP = RAW.customerMonthlyMaxPeriod || (year * 100 + month);
+        const periods = [];
+        { let y = 2025, mm = 1; while (y * 100 + mm <= maxP) { periods.push(y * 100 + mm); mm++; if (mm > 12) { mm = 1; y++; } } }
+        const pLabel = (p) => MONTH_NAMES[(p % 100) - 1] + "-" + String(Math.floor(p / 100)).slice(2);
+
+        const rows = (RAW.customerMonthly || []).map(cu => {
+          const srObj = cu.sr ? RAW.srs.find(s => s.code === cu.sr) : null;
+          const srName = srObj ? srObj.name : (cu.sr ? ("SR " + cu.sr) : "—");
+          let gap = 0;
+          for (let i = periods.length - 1; i >= 0; i--) { if ((cu.p[periods[i]] || 0) > 0) break; gap++; }
+          const total = periods.reduce((s, p) => s + (cu.p[p] || 0), 0);
+          return { ...cu, srName, gap, total };
+        });
+
+        let scoped = rows;
+        if (flm !== "All") scoped = scoped.filter(r => r.f === flm);
+        if (srFilter !== "All") scoped = scoped.filter(r => r.sr === Number(srFilter));
+        if (custSearch.trim()) {
+          const q = custSearch.trim().toLowerCase();
+          scoped = scoped.filter(r => String(r.c).includes(q) || String(r.n || "").toLowerCase().includes(q));
+        }
+        const cnt3 = scoped.filter(r => r.gap >= 3).length;
+        const cnt6 = scoped.filter(r => r.gap >= 6).length;
+        const cnt12 = scoped.filter(r => r.gap >= 12).length;
+
+        let view = scoped;
+        if (lapseFilter === "3") view = view.filter(r => r.gap >= 3);
+        else if (lapseFilter === "6") view = view.filter(r => r.gap >= 6);
+        else if (lapseFilter === "12") view = view.filter(r => r.gap >= 12);
+        view = [...view].sort((a, b) => (b.gap - a.gap) || (b.total - a.total));
+
+        const stickyHead = { position: "sticky", top: 0, zIndex: 2, background: "#f9fafb" };
+        const stickyName = { position: "sticky", left: 0, zIndex: 1, background: "#fff", minWidth: 150, maxWidth: 150 };
+        const stickyCorner = { ...stickyHead, left: 0, zIndex: 3, minWidth: 150, maxWidth: 150 };
+
+        const exportRows = () => {
+          const out = view.map(r => {
+            const o = {
+              "Customer Code": r.c, "Customer Name": r.n, "SR": r.srName, "Manager (FLM)": r.f || "—",
+            };
+            periods.forEach(p => { o[pLabel(p)] = Math.round(r.p[p] || 0); });
+            o["Months Since Last Purchase"] = r.gap;
+            o["Total"] = Math.round(r.total);
+            return o;
+          });
+          exportToExcel(out, `CustomerSales_to_${pLabel(maxP)}.xlsx`, "Customer Sales");
+        };
+
+        return (
+          <>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:10}}>
+              <Metric label="Customers (in scope)" value={String(scoped.length)} accent="#2563eb" />
+              <Metric label="No Purchase 3M+" value={String(cnt3)} accent="#f59e0b"
+                info="Customers with zero sales in each of the last 3 consecutive months (up to the latest month in the data)." />
+              <Metric label="No Purchase 6M+" value={String(cnt6)} accent="#ea580c" />
+              <Metric label="No Purchase 12M+" value={String(cnt12)} accent="#dc2626" />
+            </div>
+
+            <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · 0 sales shown in amber"}
+              action={
+                <div style={{marginLeft:"auto", display:"flex", gap:6, alignItems:"center"}}>
+                  <select value={lapseFilter} onChange={e => setLapseFilter(e.target.value)} style={selectStyle}>
+                    <option value="all">All customers</option>
+                    <option value="3">Not purchased 3M+</option>
+                    <option value="6">Not purchased 6M+</option>
+                    <option value="12">Not purchased 12M+</option>
+                  </select>
+                  <ExportBtn onClick={exportRows} />
+                </div>
+              }>
+              <div style={{fontSize:10, color:"#6b7280", marginBottom:6}}>
+                Showing {view.length.toLocaleString()} customers · filters (FLM / SR / search) apply · Ethical sales, negatives counted as 0.
+              </div>
+              <div style={{overflow:"auto", maxHeight:"70vh", border:"1px solid #f3f4f6", borderRadius:6}}>
+                <table style={{...tblStyle, fontSize:11}}>
+                  <thead>
+                    <tr>
+                      <th style={{...stickyCorner, ...thStyle, textAlign:"left"}}>Customer</th>
+                      <th style={{...stickyHead, ...thStyle}}>SR</th>
+                      <th style={{...stickyHead, ...thStyle}}>Manager</th>
+                      {periods.map(p => <th key={p} style={{...stickyHead, ...thStyleR, whiteSpace:"nowrap"}}>{pLabel(p)}</th>)}
+                      <th style={{...stickyHead, ...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Gap</th>
+                      <th style={{...stickyHead, ...thStyleR}}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {view.length === 0 && (
+                      <tr><td style={tdStyle} colSpan={periods.length + 5}>No customers match the current filters.</td></tr>
+                    )}
+                    {view.map(r => (
+                      <tr key={r.c} style={{borderTop:"1px solid #f3f4f6"}}>
+                        <td style={{...stickyName, ...tdStyle}}>
+                          <div style={{fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:142}}>{r.n}</div>
+                          <div style={{fontSize:9, color:"#9ca3af", fontFamily:"monospace"}}>{r.c}</div>
+                        </td>
+                        <td style={tdStyle}>{r.srName}</td>
+                        <td style={tdStyle}>{r.f || "—"}</td>
+                        {periods.map(p => {
+                          const v = r.p[p] || 0;
+                          return v > 0
+                            ? <td key={p} style={tdStyleR}>{fmt(v)}</td>
+                            : <td key={p} style={{...tdStyleR, background:"#fef0c7", color:"#b45309", fontWeight:600}}>0</td>;
+                        })}
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb", fontWeight:700,
+                          color: r.gap >= 12 ? "#dc2626" : r.gap >= 6 ? "#ea580c" : r.gap >= 3 ? "#d97706" : "#059669"}}>
+                          {r.gap}
+                        </td>
+                        <td style={{...tdStyleR, fontWeight:600}}>{fmt(r.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          </>
+        );
       })()}
 
       {/* ============ ACCESS LOG (admin only) ============ */}
