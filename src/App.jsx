@@ -577,7 +577,7 @@ function Dashboard({ user, raw, onLogout }) {
           secondaryLabel="tgt" />
         <Metric label="Active 3-mo · Actual / Target" value={fmt(activeTotal)}
           actual={fmt(activeTotalT)} pct={pct(activeTotal, activeTotalT)} accent="#8b5cf6"
-          secondaryLabel="tgt" />
+          secondaryLabel="tgt" info={ACTIVE_3M_INFO} />
         <Metric label="Shop Around · Actual / Target" value={fmt(shopTotal)}
           actual={fmt(shopTotalT)} pct={pct(shopTotal, shopTotalT)} accent="#0ea5e9"
           secondaryLabel="tgt" />
@@ -1495,7 +1495,7 @@ function Dashboard({ user, raw, onLogout }) {
             <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10}}>
               <Metric label="Active 3-mo · Actual / Target" value={fmt(totA)}
                 actual={fmt(totT)} pct={pct(totA, totT)} accent="#8b5cf6"
-                secondaryLabel="tgt" />
+                secondaryLabel="tgt" info={ACTIVE_3M_INFO} />
               <Metric label="Logic" value="3-mo rolling"
                 actual={MONTH_NAMES[Math.max(0, month-3)] + " + " + MONTH_NAMES[Math.max(0, month-2)] + " + " + MONTH_NAMES[month-1]} pct={null} accent="#0ea5e9" />
               <Metric label="Unassigned" value={String(unassigned)}
@@ -2591,13 +2591,49 @@ function Sep() {
   return <div style={{borderLeft:"1px solid #e5e7eb", margin:"0 4px", height:22, alignSelf:"center"}} />;
 }
 
-function Metric({ label, value, actual, pct, accent, sub, secondaryLabel }) {
+const ACTIVE_3M_INFO = "Active 3-mo = distinct customers with at least one Ethical purchase in the trailing 3-month window (the selected month plus the 2 months before it; it rolls into the previous year for early months — e.g. Jan counts Nov + Dec + Jan). Each active customer is credited to their SR(s); a shared customer counts for every SR that shares them, so per-SR totals can add up to more than the distinct customer count. Target comes from the 'Target-Active Cus 3 Months' sheet.";
+
+// Small clickable info icon with a tap/click tooltip (works on mobile too).
+function InfoDot({ text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{position:"relative", display:"inline-block"}}>
+      <span
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        style={{
+          display:"inline-flex", alignItems:"center", justifyContent:"center",
+          width:14, height:14, borderRadius:"50%", background:"#e0e7ff",
+          color:"#4338ca", fontSize:10, fontWeight:700, cursor:"pointer",
+          marginLeft:5, verticalAlign:"middle", fontStyle:"italic",
+        }}
+        title="Click for details"
+      >i</span>
+      {open && (
+        <>
+          <span onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            style={{position:"fixed", inset:0, zIndex:40}} />
+          <span style={{
+            position:"absolute", top:"135%", left:0, zIndex:50,
+            background:"#111827", color:"#fff", fontSize:10.5, fontWeight:400,
+            lineHeight:1.55, padding:"9px 11px", borderRadius:6, width:265,
+            boxShadow:"0 4px 14px rgba(0,0,0,.25)", textAlign:"left",
+            textTransform:"none", letterSpacing:0, whiteSpace:"normal",
+          }}>{text}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+function Metric({ label, value, actual, pct, accent, sub, secondaryLabel, info }) {
   return (
     <div style={{
       background:"#fff", border:"1px solid #e5e7eb",
       borderTop:"3px solid " + accent, borderRadius:8, padding:"10px 12px",
     }}>
-      <div style={{fontSize:9, color:"#6b7280", textTransform:"uppercase", letterSpacing:.5, fontWeight:600}}>{label}</div>
+      <div style={{fontSize:9, color:"#6b7280", textTransform:"uppercase", letterSpacing:.5, fontWeight:600}}>
+        {label}{info && <InfoDot text={info} />}
+      </div>
       <div style={{display:"flex", alignItems:"baseline", gap:4, marginTop:3, flexWrap:"wrap"}}>
         <div style={{fontSize:18, fontWeight:700, color:"#111827"}}>{value}</div>
         {actual !== undefined && actual !== null && actual !== "—" && (
