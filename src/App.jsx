@@ -736,8 +736,18 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
           </Panel>
 
-          <Panel title="FLM Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)"
-            action={<ExportBtn onClick={() => {
+          <CoverageRanking
+            title="FLM Coverage Rating (Shop Around · Active 3-mo · New Listing · NU)"
+            rows={C.flmCoverage.map(r => ({
+              key: r.flm, name: r.flm, sub: null,
+              kpis: [
+                { label: "Shop", actual: r.shopA, target: r.shopT },
+                { label: "Active", actual: r.activeA, target: r.activeT },
+                { label: "New", actual: r.newA, target: r.newT },
+                { label: "NU", actual: r.leadA, target: r.leadT },
+              ],
+            }))}
+            onExport={() => {
               const rows = C.flmCoverage.map(r => ({
                 "FLM": r.flm,
                 "Shop Target": Math.round(r.shopT),
@@ -754,63 +764,21 @@ function Dashboard({ user, raw, onLogout }) {
                 "NU %": r.leadT > 0 ? ((r.leadA/r.leadT)*100).toFixed(0) + "%" : "—",
               }));
               exportToExcel(rows, `FLMCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "FLM Coverage");
-            }} />}>
-            <div style={{overflowX:"auto"}}>
-              <table style={tblStyle}>
-                <thead><tr style={{background:"#f9fafb"}}>
-                  <th style={thStyle}>FLM</th>
-                  <th style={thStyleR}>Shop Tgt</th>
-                  <th style={thStyleR}>Shop Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Active Tgt</th>
-                  <th style={thStyleR}>Active Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>New Tgt</th>
-                  <th style={thStyleR}>New Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>NU Tgt</th>
-                  <th style={thStyleR}>NU Act</th>
-                  <th style={thStyleR}>%</th>
-                </tr></thead>
-                <tbody>
-                  {C.flmCoverage.map(r => {
-                    const sP = pct(r.shopA, r.shopT);
-                    const aP = pct(r.activeA, r.activeT);
-                    const nP = pct(r.newA, r.newT);
-                    const lP = pct(r.leadA, r.leadT);
-                    return (
-                      <tr key={r.flm} style={{borderTop:"1px solid #f3f4f6"}}>
-                        <td style={tdStyle}><strong>{r.flm}</strong></td>
-                        <td style={tdStyleR}>{fmt(r.shopT)}</td>
-                        <td style={tdStyleR}>{fmt(r.shopA)}</td>
-                        <td style={{...tdStyleR, color:pctColor(sP), fontWeight:600}}>
-                          {r.shopT > 0 ? sP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.activeT}</td>
-                        <td style={tdStyleR}>{r.activeA}</td>
-                        <td style={{...tdStyleR, color:pctColor(aP), fontWeight:600}}>
-                          {r.activeT > 0 ? aP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.newT}</td>
-                        <td style={tdStyleR}>{r.newA}</td>
-                        <td style={{...tdStyleR, color:pctColor(nP), fontWeight:600}}>
-                          {r.newT > 0 ? nP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.leadT}</td>
-                        <td style={tdStyleR}>{r.leadA}</td>
-                        <td style={{...tdStyleR, color:pctColor(lP), fontWeight:600}}>
-                          {r.leadT > 0 ? lP.toFixed(0) + "%" : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+            }}
+          />
 
-          <Panel title="SR Coverage Metrics (Shop Around · Active 3-mo · New Listing · NU)"
-            action={<ExportBtn onClick={() => {
+          <CoverageRanking
+            title="SR Coverage Rating (Shop Around · Active 3-mo · New Listing · NU)"
+            rows={C.srScorecards.map(r => ({
+              key: r.code, name: r.name, sub: r.flm,
+              kpis: [
+                { label: "Shop", actual: r.shopActual, target: r.shopTarget },
+                { label: "Active", actual: r.activeActual, target: r.activeTarget },
+                { label: "New", actual: r.newActual, target: r.newTarget },
+                { label: "NU", actual: r.leadActual, target: r.leadTarget },
+              ],
+            }))}
+            onExport={() => {
               const rows = C.srScorecards.map(r => ({
                 "SR Code": r.code,
                 "SR Name": r.name,
@@ -829,62 +797,8 @@ function Dashboard({ user, raw, onLogout }) {
                 "NU %": r.leadTarget > 0 ? ((r.leadActual/r.leadTarget)*100).toFixed(0) + "%" : "—",
               }));
               exportToExcel(rows, `SRCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "SR Coverage");
-            }} />}>
-            <div style={{overflowX:"auto"}}>
-              <table style={tblStyle}>
-                <thead><tr style={{background:"#f9fafb"}}>
-                  <th style={thStyleR}>SR Code</th>
-                  <th style={thStyle}>SR Name</th>
-                  <th style={thStyleR}>Shop Tgt</th>
-                  <th style={thStyleR}>Shop Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Active Tgt</th>
-                  <th style={thStyleR}>Active Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>New Tgt</th>
-                  <th style={thStyleR}>New Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>NU Tgt</th>
-                  <th style={thStyleR}>NU Act</th>
-                  <th style={thStyleR}>%</th>
-                </tr></thead>
-                <tbody>
-                  {C.srScorecards.map(r => {
-                    const sP = pct(r.shopActual, r.shopTarget);
-                    const aP = pct(r.activeActual, r.activeTarget);
-                    const nP = pct(r.newActual, r.newTarget);
-                    const lP = pct(r.leadActual, r.leadTarget);
-                    return (
-                      <tr key={r.code} style={{borderTop:"1px solid #f3f4f6"}}>
-                        <td style={tdStyleR}>{r.code}</td>
-                        <td style={tdStyle}><strong>{r.name}</strong></td>
-                        <td style={tdStyleR}>{fmt(r.shopTarget)}</td>
-                        <td style={tdStyleR}>{fmt(r.shopActual)}</td>
-                        <td style={{...tdStyleR, color:pctColor(sP), fontWeight:600}}>
-                          {r.shopTarget > 0 ? sP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.activeTarget}</td>
-                        <td style={tdStyleR}>{r.activeActual}</td>
-                        <td style={{...tdStyleR, color:pctColor(aP), fontWeight:600}}>
-                          {r.activeTarget > 0 ? aP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.newTarget}</td>
-                        <td style={tdStyleR}>{r.newActual}</td>
-                        <td style={{...tdStyleR, color:pctColor(nP), fontWeight:600}}>
-                          {r.newTarget > 0 ? nP.toFixed(0) + "%" : "—"}
-                        </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.leadTarget}</td>
-                        <td style={tdStyleR}>{r.leadActual}</td>
-                        <td style={{...tdStyleR, color:pctColor(lP), fontWeight:600}}>
-                          {r.leadTarget > 0 ? lP.toFixed(0) + "%" : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+            }}
+          />
         </>
       )}
 
@@ -2719,6 +2633,118 @@ function Panel({ title, children, action }) {
       </div>
       {children}
     </div>
+  );
+}
+
+// Ranked coverage scorecard: medal cards for the top 3 + a full ranked table.
+// rows: [{ key, name, sub, kpis: [{ label, actual, target }] }]
+function CoverageRanking({ title, rows, onExport }) {
+  const scored = rows.map(r => {
+    const withT = r.kpis.filter(k => k.target > 0);
+    const hits = withT.filter(k => k.actual >= k.target).length;
+    const score = withT.length
+      ? withT.reduce((s, k) => s + Math.min((k.actual / k.target) * 100, 100), 0) / withT.length
+      : 0;
+    return { ...r, hits, misses: withT.length - hits, hitsTotal: withT.length, score };
+  }).sort((a, b) => b.score - a.score);
+  scored.forEach((r, i) => { r.rank = i + 1; });
+
+  const tierOf = (s) => s >= 90 ? "Gold" : s >= 75 ? "Silver" : s >= 60 ? "Bronze" : "—";
+  const rankColor = (rank) => rank === 1 ? "#f59e0b" : rank === 2 ? "#9ca3af" : rank === 3 ? "#c2410c" : "#9ca3af";
+  const top3 = scored.slice(0, 3);
+
+  const TierBadge = ({ tier }) => (
+    <span style={{
+      background: tier === "Gold" ? "#fef3c7" : tier === "Silver" ? "#f3f4f6" : tier === "Bronze" ? "#fff7ed" : "#f9fafb",
+      color: tier === "Gold" ? "#92400e" : tier === "Silver" ? "#4b5563" : tier === "Bronze" ? "#9a3412" : "#9ca3af",
+      border: "1px solid " + (tier === "Gold" ? "#fcd34d" : tier === "Silver" ? "#d1d5db" : tier === "Bronze" ? "#fdba74" : "#e5e7eb"),
+      borderRadius: 6, padding: "2px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+    }}>{tier}</span>
+  );
+
+  const Tile = ({ label, actual, target }) => {
+    const has = target > 0;
+    const p = has ? (actual / target) * 100 : 0;
+    const col = !has ? "#9ca3af" : actual >= target ? "#059669" : "#dc2626";
+    return (
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:10, color:"#6b7280", fontWeight:600}}>{label}</div>
+        <div style={{fontSize:16, fontWeight:700, color:col}}>{has ? p.toFixed(0) + "%" : "—"}</div>
+        <div style={{fontSize:9, color:"#9ca3af"}}>{fmt(actual)} / {fmt(target)}</div>
+        <div style={{fontSize:10, fontWeight:600, color:col}}>
+          {has ? ((actual - target >= 0 ? "+" : "") + fmt(actual - target)) : ""}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Panel title={title} action={<ExportBtn onClick={onExport} />}>
+      <div style={{display:"grid", gridTemplateColumns:"1fr", gap:8, marginBottom:10}}>
+        {top3.map(r => (
+          <div key={r.key} style={{
+            border:"1px solid #e5e7eb", borderTop:"4px solid " + rankColor(r.rank),
+            borderRadius:8, padding:"10px 14px", background:"#fff",
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:10}}>
+              <span style={{fontSize:22, fontWeight:800, color:rankColor(r.rank)}}>#{r.rank}</span>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:14, fontWeight:700, color:"#111827"}}>{r.name}</div>
+                {r.sub && <div style={{fontSize:11, color:"#6b7280"}}>{r.sub}</div>}
+              </div>
+              <TierBadge tier={tierOf(r.score)} />
+            </div>
+            <div style={{display:"flex", alignItems:"baseline", gap:10, margin:"6px 0 10px"}}>
+              <span style={{fontSize:11, color:"#6b7280", fontWeight:600}}>SCORE</span>
+              <span style={{fontSize:26, fontWeight:800, color:"#111827"}}>{r.score.toFixed(1)}</span>
+              <span style={{marginLeft:"auto", fontSize:12, fontWeight:700}}>
+                <span style={{color:"#059669"}}>● {r.hits}</span>{" "}
+                <span style={{color:"#dc2626"}}>● {r.misses}</span>
+              </span>
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(" + r.kpis.length + ",1fr)", gap:6}}>
+              {r.kpis.map(k => <Tile key={k.label} {...k} />)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{overflowX:"auto"}}>
+        <table style={tblStyle}>
+          <thead><tr style={{background:"#f9fafb"}}>
+            <th style={thStyleR}>#</th>
+            <th style={thStyle}>Name</th>
+            {scored[0] && scored[0].kpis.map(k => <th key={k.label} style={thStyleR}>{k.label} %</th>)}
+            <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Hits</th>
+            <th style={thStyleR}>Score</th>
+            <th style={thStyle}>Tier</th>
+          </tr></thead>
+          <tbody>
+            {scored.map(r => (
+              <tr key={r.key} style={{borderTop:"1px solid #f3f4f6", background: r.rank <= 3 ? "#fffdf5" : "#fff"}}>
+                <td style={{...tdStyleR, fontWeight:700, color:rankColor(r.rank)}}>{r.rank}</td>
+                <td style={tdStyle}>
+                  <strong>{r.name}</strong>
+                  {r.sub && <span style={{color:"#9ca3af", fontSize:10}}> · {r.sub}</span>}
+                </td>
+                {r.kpis.map(k => {
+                  const has = k.target > 0;
+                  const p = has ? (k.actual / k.target) * 100 : 0;
+                  return (
+                    <td key={k.label} style={{...tdStyleR, color: has ? pctColor(p) : "#d1d5db", fontWeight:600}}>
+                      {has ? p.toFixed(0) + "%" : "—"}
+                    </td>
+                  );
+                })}
+                <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{r.hits}/{r.hitsTotal}</td>
+                <td style={{...tdStyleR, fontWeight:700}}>{r.score.toFixed(1)}</td>
+                <td style={tdStyle}><TierBadge tier={tierOf(r.score)} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
