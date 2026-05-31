@@ -45,6 +45,15 @@ const TAB_NAMES = {
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 const CACHE_SECONDS = 300;
 
+// === Daily email import (auto-ingest the morning sales email) ===
+// The script reads the latest Excel attachment from this sender and REPLACES the
+// Export tab with its contents, then refreshes the dashboard cache.
+const DAILY_IMPORT = {
+  senderEmail:     'REPLACE_WITH_SENDER@example.com', // exact "From" address of the morning email
+  subjectContains: '',  // optional: only match emails whose subject contains this text (leave '' to match any)
+  searchWindowDays: 2,  // look back this many days for the latest matching email
+};
+
 // =============================================================================
 // MAIN ENDPOINT
 // =============================================================================
@@ -168,7 +177,90 @@ function getAccessLog(code) {
 }
 
 // =============================================================================
-// DATA BUILDER
+// DAILY EMAIL IMPORT
+// Pulls the latest Excel attachment from DAILY_IMPORT.senderEmail and replaces
+// the Export tab with its contents, then clears the dashboard cache.
+//
+// ONE-TIME SETUP:
+//   1. Apps Script editor → Services (＋) → add "Drive API" (advanced service).
+//   2. Set DAILY_IMPORT.senderEmail (top of this file).
+//   3. Run importDailyFromEmail() once manually to grant Gmail/Drive access.
+//   4. Run installDailyImportTrigger() once to schedule it every morning.
+// =============================================================================
+function importDailyFromEmail() {
+  const cfg = DAILY_IMPORT;
+  if (!cfg.senderEmail || cfg.senderEmail.indexOf('REPLACE') === 0) {
+    throw new Error('Set DAILY_IMPORT.senderEmail at the top of the script first.');
+  }
+
+  let query = 'from:' + cfg.senderEmail + ' has:attachment newer_than:' + cfg.searchWindowDays + 'd';
+  if (cfg.subjectContains) query += ' subject:("' + cfg.subjectContains + '")';
+
+  const threads = GmailApp.search(query, 0, 20);
+  if (!threads.length) {
+    Logger.log('No matching emails for query: ' + query);
+    return { ok: false, error: 'No matching email found' };
+  }
+
+  // Find the newest message that has an Excel attachment.
+  let latestDate = 0, latestMsg = null, excel = null;
+  threads.forEach(function (t) {
+    t.getMessages().forEach(function (m) {
+      const d = m.getDate().getTime();
+      if (d <= latestDate) return;
+      const xlsx = m.getAttachments().filter(function (a) {
+        return /\.xlsx?$/i.test(a.getName());
+      })[0];
+      if (xlsx) { latestDate = d; latestMsg = m; excel = xlsx; }
+    });
+  });
+  if (!excel) {
+    Logger.log('No Excel attachment found in matching emails.');
+    return { ok: false, error: 'No Excel attachment found' };
+  }
+
+  // Convert the Excel blob to a temporary Google Sheet so we can read its cells.
+  // Requires the "Drive API" advanced service to be enabled (see setup notes).
+  const tempFile = Drive.Files.insert(
+    { title: 'tmp_daily_import_' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS },
+    excel.copyBlob()
+  );
+  let values;
+  try {
+    const tmpSheet = SpreadsheetApp.openById(tempFile.id).getSheets()[0];
+    values = tmpSheet.getDataRange().getValues();
+  } finally {
+    try { Drive.Files.remove(tempFile.id); } catch (e) {}
+  }
+  if (!values || values.length < 2) {
+    return { ok: false, error: 'Attachment had no data rows' };
+  }
+
+  // Replace the Export tab with the new data (full dataset each morning).
+  const ss = SpreadsheetApp.openById(SHEET_IDS.daily);
+  let sheet = ss.getSheetByName(TAB_NAMES.daily);
+  if (!sheet) sheet = ss.insertSheet(TAB_NAMES.daily);
+  sheet.clearContents();
+  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+  // Serve the fresh data immediately.
+  try { CacheService.getScriptCache().remove('dashboard_data'); } catch (e) {}
+
+  Logger.log('Imported ' + (values.length - 1) + ' rows (email dated ' + latestMsg.getDate() + ').');
+  return { ok: true, rows: values.length - 1, emailDate: latestMsg.getDate() };
+}
+
+// Schedule importDailyFromEmail() to run every morning (~7am script timezone).
+// Run this once from the editor; safe to re-run (it replaces the old trigger).
+function installDailyImportTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'importDailyFromEmail') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('importDailyFromEmail').timeBased().everyDays(1).atHour(7).create();
+  Logger.log('Daily import trigger installed (runs ~7am).');
+}
+
+
 // =============================================================================
 function getDashboardData() {
   const cache = CacheService.getScriptCache();
