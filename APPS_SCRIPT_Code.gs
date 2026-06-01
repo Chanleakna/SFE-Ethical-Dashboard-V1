@@ -486,8 +486,9 @@ function buildDashboardPayload() {
     if (Number(r['Year']) !== 2026) return;
     const cust = Number(r['Customer Code']);
     const cat = mat.cat;
-    // Ignore negative sales (returns / credit notes) — they don't reduce actuals.
-    const sales = Math.max(0, Number(r['Total Act. Sales']) || 0);
+    // Sales actuals match the Export tab exactly — negatives (returns/credit
+    // notes) are included, same as the raw data.
+    const sales = Number(r['Total Act. Sales']) || 0;
     const flm = normFlm(r['FLM']);
     const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
     const dailySr = srMatch[srFirst] || null;
@@ -541,8 +542,8 @@ function buildDashboardPayload() {
     const c = Number(r['Customer Code']);
     if (!c) return;
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
-    // Ignore negative sales (returns / credit notes) so they don't reduce actuals.
-    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + Math.max(0, Number(r['Total Act. Sales']) || 0);
+    // Match the Export tab exactly — negatives included.
+    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + (Number(r['Total Act. Sales']) || 0);
   });
 
   // === SHOP AROUND ===
@@ -615,7 +616,10 @@ function buildDashboardPayload() {
       if (prev >= 1) periods.push(202600 + prev);
       else periods.push(202500 + (12 + prev));
     });
-    const custs = {};
+    // Active 3-mo is the ONLY place negative sales are applied: sum each
+    // customer's NET sales across the window and count them active only if the
+    // net is positive (returns/credit notes net out a customer's activity).
+    const custNet = {};
     daily.forEach(r => {
       // === FIX: case-insensitive Ethical filter ===
       if (!isEthical(r['Dep'])) return;
@@ -623,8 +627,11 @@ function buildDashboardPayload() {
       const p = (r['Year'] || 0) * 100 + mn;
       if (periods.indexOf(p) < 0) return;
       const c = Number(r['Customer Code']);
-      if (c) custs[c] = true;
+      if (!c) return;
+      custNet[c] = (custNet[c] || 0) + (Number(r['Total Act. Sales']) || 0);
     });
+    const custs = {};
+    Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
     const flmCount = {}, srCount = {};
     Object.keys(custs).forEach(cs => {
       const c = Number(cs);
@@ -910,7 +917,8 @@ function buildDashboardPayload() {
     const yr = Number(r['Year']) || 0;
     const period = yr * 100 + mn;
     if (period < 202501) return; // from Jan 2025 onward
-    const sales = Math.max(0, Number(r['Total Act. Sales']) || 0);
+    // Match the Export tab exactly — negatives included.
+    const sales = Number(r['Total Act. Sales']) || 0;
     if (!custMonthly[c]) {
       const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
       custMonthly[c] = {
