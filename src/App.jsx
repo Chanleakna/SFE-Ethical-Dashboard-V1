@@ -708,8 +708,10 @@ function Dashboard({ user, raw, onLogout }) {
                     "Total Actual": Math.round(card.totalA),
                     "Variance": Math.round(card.totalA - card.totalT),
                     "% Achievement": card.totalT > 0 ? card.totalPct.toFixed(1) + "%" : "—",
+                    "MND Target": Math.round(card.mndT),
                     "MND Actual": Math.round(card.mndA),
                     "MND %": card.mndT > 0 ? ((card.mndA/card.mndT)*100).toFixed(0) + "%" : "—",
+                    "PND Target": Math.round(card.pndT),
                     "PND Actual": Math.round(card.pndA),
                     "PND %": card.pndT > 0 ? ((card.pndA/card.pndT)*100).toFixed(0) + "%" : "—",
                   });
@@ -725,9 +727,11 @@ function Dashboard({ user, raw, onLogout }) {
                   <th style={thStyleR}>Actual</th>
                   <th style={thStyleR}>Var</th>
                   <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>MND Act</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>MND Tgt</th>
+                  <th style={thStyleR}>MND Act</th>
                   <th style={thStyleR}>MND %</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Act</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Tgt</th>
+                  <th style={thStyleR}>PND Act</th>
                   <th style={thStyleR}>PND %</th>
                   <th style={{...thStyle, borderLeft:"1px solid #e5e7eb"}}>Progress</th>
                 </tr></thead>
@@ -757,9 +761,11 @@ function Dashboard({ user, raw, onLogout }) {
                         <td style={{...tdStyleR, color:pctColor(f.pct), fontWeight:700}}>
                           {f.pct.toFixed(1)}%
                         </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.mndA)}</td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.mndT)}</td>
+                        <td style={tdStyleR}>{fmt(dv.mndA)}</td>
                         <td style={{...tdStyleR, color:pctColor(mp), fontWeight:600}}>{dv.mndT > 0 ? mp.toFixed(0)+"%" : "—"}</td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.pndA)}</td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.pndT)}</td>
+                        <td style={tdStyleR}>{fmt(dv.pndA)}</td>
                         <td style={{...tdStyleR, color:pctColor(pp), fontWeight:600}}>{dv.pndT > 0 ? pp.toFixed(0)+"%" : "—"}</td>
                         <td style={{...tdStyle, borderLeft:"1px solid #e5e7eb"}}><Bar2 pct={f.pct} /></td>
                       </tr>
@@ -783,9 +789,11 @@ function Dashboard({ user, raw, onLogout }) {
                             <td style={{...tdStyleR, color:pctColor(card.totalPct), fontWeight:600}}>
                               {card.totalPct.toFixed(0)}%
                             </td>
-                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.mndA)}</td>
+                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.mndT)}</td>
+                            <td style={tdStyleR}>{fmt(card.mndA)}</td>
                             <td style={{...tdStyleR, color:pctColor(cmp), fontWeight:600}}>{card.mndT > 0 ? cmp.toFixed(0)+"%" : "—"}</td>
-                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.pndA)}</td>
+                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.pndT)}</td>
+                            <td style={tdStyleR}>{fmt(card.pndA)}</td>
                             <td style={{...tdStyleR, color:pctColor(cpp), fontWeight:600}}>{card.pndT > 0 ? cpp.toFixed(0)+"%" : "—"}</td>
                             <td style={{...tdStyle, borderLeft:"1px solid #e5e7eb"}}><Bar2 pct={card.totalPct} /></td>
                           </tr>
@@ -804,11 +812,13 @@ function Dashboard({ user, raw, onLogout }) {
                     <td style={{...tdStyleR, color:pctColor(overallPct)}}>
                       {overallPct.toFixed(1)}%
                     </td>
-                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.mndA)}</td>
+                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.mndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndA)}</td>
                     <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.mndA, C.divisionTotals.mndT))}}>
                       {C.divisionTotals.mndT > 0 ? pct(C.divisionTotals.mndA, C.divisionTotals.mndT).toFixed(0)+"%" : "—"}
                     </td>
-                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndA)}</td>
+                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.pndA)}</td>
                     <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.pndA, C.divisionTotals.pndT))}}>
                       {C.divisionTotals.pndT > 0 ? pct(C.divisionTotals.pndA, C.divisionTotals.pndT).toFixed(0)+"%" : "—"}
                     </td>
@@ -819,99 +829,6 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
             <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
               MND = ENS PWD · ENS RPB · GLU PWD · GLU RPB · PRO &nbsp;·&nbsp; PND = SM · SIM · STC · PED PWD · PED RPB
-            </div>
-          </Panel>
-
-          <Panel title="FLM × Division — MND / PND (click ▸ to expand SR detail)"
-            action={<ExportBtn onClick={() => {
-              const rows = [];
-              C.flmDivision.forEach(f => {
-                rows.push({
-                  "FLM": f.flm, "SR": "",
-                  "MND Target": Math.round(f.mndT), "MND Actual": Math.round(f.mndA),
-                  "MND %": f.mndT > 0 ? ((f.mndA/f.mndT)*100).toFixed(0)+"%" : "—",
-                  "PND Target": Math.round(f.pndT), "PND Actual": Math.round(f.pndA),
-                  "PND %": f.pndT > 0 ? ((f.pndA/f.pndT)*100).toFixed(0)+"%" : "—",
-                });
-                f.srs.forEach(c => rows.push({
-                  "FLM": f.flm, "SR": c.name,
-                  "MND Target": Math.round(c.mndT), "MND Actual": Math.round(c.mndA),
-                  "MND %": c.mndT > 0 ? ((c.mndA/c.mndT)*100).toFixed(0)+"%" : "—",
-                  "PND Target": Math.round(c.pndT), "PND Actual": Math.round(c.pndA),
-                  "PND %": c.pndT > 0 ? ((c.pndA/c.pndT)*100).toFixed(0)+"%" : "—",
-                }));
-              });
-              exportToExcel(rows, `FLM_Division_MND_PND_${MONTH_NAMES[month-1]}${year}.xlsx`, "MND PND");
-            }} />}>
-            <div style={{overflowX:"auto"}}>
-              <table style={tblStyle}>
-                <thead><tr style={{background:"#f9fafb"}}>
-                  <th style={thStyle}>FLM / SR</th>
-                  <th style={thStyleR}>MND Tgt</th>
-                  <th style={thStyleR}>MND Act</th>
-                  <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Tgt</th>
-                  <th style={thStyleR}>PND Act</th>
-                  <th style={thStyleR}>%</th>
-                </tr></thead>
-                <tbody>
-                  {C.flmDivision.map(f => {
-                    const mp = pct(f.mndA, f.mndT), pp = pct(f.pndA, f.pndT);
-                    return (
-                      <React.Fragment key={f.flm}>
-                        <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer"}}
-                          onClick={() => setExpanded(e => ({ ...e, ["div_"+f.flm]: !e["div_"+f.flm] }))}>
-                          <td style={{...tdStyle, fontWeight:600}}>
-                            <span style={{display:"inline-block", width:14, color:"#6b7280"}}>
-                              {expanded["div_"+f.flm] ? "▾" : "▸"}
-                            </span>
-                            {f.flm}
-                          </td>
-                          <td style={tdStyleR}>{fmt(f.mndT)}</td>
-                          <td style={tdStyleR}>{fmt(f.mndA)}</td>
-                          <td style={{...tdStyleR, color:pctColor(mp), fontWeight:700}}>{f.mndT > 0 ? mp.toFixed(0)+"%" : "—"}</td>
-                          <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(f.pndT)}</td>
-                          <td style={tdStyleR}>{fmt(f.pndA)}</td>
-                          <td style={{...tdStyleR, color:pctColor(pp), fontWeight:700}}>{f.pndT > 0 ? pp.toFixed(0)+"%" : "—"}</td>
-                        </tr>
-                        {expanded["div_"+f.flm] && f.srs.map(c => {
-                          const mp2 = pct(c.mndA, c.mndT), pp2 = pct(c.pndA, c.pndT);
-                          return (
-                            <tr key={c.code} style={{borderTop:"1px solid #f3f4f6", background:"#fff"}}>
-                              <td style={{...tdStyle, paddingLeft:32, fontSize:11}}>
-                                <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:10, marginRight:6}}>{c.code}</span>
-                                {c.name}
-                              </td>
-                              <td style={tdStyleR}>{fmt(c.mndT)}</td>
-                              <td style={tdStyleR}>{fmt(c.mndA)}</td>
-                              <td style={{...tdStyleR, color:pctColor(mp2), fontWeight:600}}>{c.mndT > 0 ? mp2.toFixed(0)+"%" : "—"}</td>
-                              <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(c.pndT)}</td>
-                              <td style={tdStyleR}>{fmt(c.pndA)}</td>
-                              <td style={{...tdStyleR, color:pctColor(pp2), fontWeight:600}}>{c.pndT > 0 ? pp2.toFixed(0)+"%" : "—"}</td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
-                  <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
-                    <td style={tdStyle}>TOTAL</td>
-                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndT)}</td>
-                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndA)}</td>
-                    <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.mndA, C.divisionTotals.mndT))}}>
-                      {C.divisionTotals.mndT > 0 ? pct(C.divisionTotals.mndA, C.divisionTotals.mndT).toFixed(0)+"%" : "—"}
-                    </td>
-                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndT)}</td>
-                    <td style={tdStyleR}>{fmt(C.divisionTotals.pndA)}</td>
-                    <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.pndA, C.divisionTotals.pndT))}}>
-                      {C.divisionTotals.pndT > 0 ? pct(C.divisionTotals.pndA, C.divisionTotals.pndT).toFixed(0)+"%" : "—"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
-              PND = SM · SIM · STC · PED PWD · PED RPB &nbsp;·&nbsp; MND = ENS PWD · ENS RPB · GLU PWD · GLU RPB · PRO
             </div>
           </Panel>
 
