@@ -34,6 +34,12 @@ const SUB_BRANDS = [
   { name: "SM",        color: "#94a3b8", kpis: ["SM"] },
 ];
 
+// Division grouping of the 10 KPI sub-brands (from the Material Code master).
+const KPI_CATEGORY = {
+  "SM":"PND", "SIM":"PND", "STC":"PND", "PED PWD":"PND", "PED RPB":"PND",
+  "ENS PWD":"MND", "ENS RPB":"MND", "GLU PWD":"MND", "GLU RPB":"MND", "PRO":"MND",
+};
+
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // === Excel export helper ===
@@ -355,11 +361,15 @@ function Dashboard({ user, raw, onLogout }) {
     const srScorecards = srs.map(s => {
       const card = { code: s.code, name: s.name, flm: s.flm,
         kpis: {}, subBrands: {}, totalT: 0, totalA: 0 };
+      card.mndT = 0; card.mndA = 0; card.pndT = 0; card.pndA = 0;
       KPI_DEFS.forEach(k => {
         const t = targetMap.get(s.code + "|" + k.key) || 0;
         const a = actualMap.get(s.code + "|" + k.key) || 0;
         card.kpis[k.key] = { target: t, actual: a, pct: pct(a, t), variance: a - t };
         card.totalT += t; card.totalA += a;
+        const cat = KPI_CATEGORY[k.key];
+        if (cat === "MND") { card.mndT += t; card.mndA += a; }
+        else if (cat === "PND") { card.pndT += t; card.pndA += a; }
       });
       SUB_BRANDS.forEach(b => {
         let t = 0, a = 0;
@@ -454,10 +464,28 @@ function Dashboard({ user, raw, onLogout }) {
       return { flm: f, srs: sList, shopT, shopA, activeT, activeA, newT, newA, leadT, leadA };
     });
 
+    // === FLM × Division (MND / PND) rollup ===
+    const flmDivision = flmList.map(f => {
+      const cards = srScorecards.filter(c => c.flm === f);
+      const sum = (key) => cards.reduce((s, c) => s + c[key], 0);
+      return {
+        flm: f, srs: cards,
+        mndT: sum("mndT"), mndA: sum("mndA"),
+        pndT: sum("pndT"), pndA: sum("pndA"),
+      };
+    });
+    const divisionTotals = {
+      mndT: srScorecards.reduce((s, c) => s + c.mndT, 0),
+      mndA: srScorecards.reduce((s, c) => s + c.mndA, 0),
+      pndT: srScorecards.reduce((s, c) => s + c.pndT, 0),
+      pndA: srScorecards.reduce((s, c) => s + c.pndA, 0),
+    };
+
     return {
       srs, srScorecards, kpiTotals, subBrandTotals,
       totalTarget, totalActual,
       flmRollup, flmCoverage, shopItems,
+      flmDivision, divisionTotals,
     };
   }, [tick, year, month, flm, srFilter, custFilter]);
 
@@ -759,6 +787,99 @@ function Dashboard({ user, raw, onLogout }) {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </Panel>
+
+          <Panel title="FLM × Division — MND / PND (click ▸ to expand SR detail)"
+            action={<ExportBtn onClick={() => {
+              const rows = [];
+              C.flmDivision.forEach(f => {
+                rows.push({
+                  "FLM": f.flm, "SR": "",
+                  "MND Target": Math.round(f.mndT), "MND Actual": Math.round(f.mndA),
+                  "MND %": f.mndT > 0 ? ((f.mndA/f.mndT)*100).toFixed(0)+"%" : "—",
+                  "PND Target": Math.round(f.pndT), "PND Actual": Math.round(f.pndA),
+                  "PND %": f.pndT > 0 ? ((f.pndA/f.pndT)*100).toFixed(0)+"%" : "—",
+                });
+                f.srs.forEach(c => rows.push({
+                  "FLM": f.flm, "SR": c.name,
+                  "MND Target": Math.round(c.mndT), "MND Actual": Math.round(c.mndA),
+                  "MND %": c.mndT > 0 ? ((c.mndA/c.mndT)*100).toFixed(0)+"%" : "—",
+                  "PND Target": Math.round(c.pndT), "PND Actual": Math.round(c.pndA),
+                  "PND %": c.pndT > 0 ? ((c.pndA/c.pndT)*100).toFixed(0)+"%" : "—",
+                }));
+              });
+              exportToExcel(rows, `FLM_Division_MND_PND_${MONTH_NAMES[month-1]}${year}.xlsx`, "MND PND");
+            }} />}>
+            <div style={{overflowX:"auto"}}>
+              <table style={tblStyle}>
+                <thead><tr style={{background:"#f9fafb"}}>
+                  <th style={thStyle}>FLM / SR</th>
+                  <th style={thStyleR}>MND Tgt</th>
+                  <th style={thStyleR}>MND Act</th>
+                  <th style={thStyleR}>%</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Tgt</th>
+                  <th style={thStyleR}>PND Act</th>
+                  <th style={thStyleR}>%</th>
+                </tr></thead>
+                <tbody>
+                  {C.flmDivision.map(f => {
+                    const mp = pct(f.mndA, f.mndT), pp = pct(f.pndA, f.pndT);
+                    return (
+                      <React.Fragment key={f.flm}>
+                        <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer"}}
+                          onClick={() => setExpanded(e => ({ ...e, ["div_"+f.flm]: !e["div_"+f.flm] }))}>
+                          <td style={{...tdStyle, fontWeight:600}}>
+                            <span style={{display:"inline-block", width:14, color:"#6b7280"}}>
+                              {expanded["div_"+f.flm] ? "▾" : "▸"}
+                            </span>
+                            {f.flm}
+                          </td>
+                          <td style={tdStyleR}>{fmt(f.mndT)}</td>
+                          <td style={tdStyleR}>{fmt(f.mndA)}</td>
+                          <td style={{...tdStyleR, color:pctColor(mp), fontWeight:700}}>{f.mndT > 0 ? mp.toFixed(0)+"%" : "—"}</td>
+                          <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(f.pndT)}</td>
+                          <td style={tdStyleR}>{fmt(f.pndA)}</td>
+                          <td style={{...tdStyleR, color:pctColor(pp), fontWeight:700}}>{f.pndT > 0 ? pp.toFixed(0)+"%" : "—"}</td>
+                        </tr>
+                        {expanded["div_"+f.flm] && f.srs.map(c => {
+                          const mp2 = pct(c.mndA, c.mndT), pp2 = pct(c.pndA, c.pndT);
+                          return (
+                            <tr key={c.code} style={{borderTop:"1px solid #f3f4f6", background:"#fff"}}>
+                              <td style={{...tdStyle, paddingLeft:32, fontSize:11}}>
+                                <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:10, marginRight:6}}>{c.code}</span>
+                                {c.name}
+                              </td>
+                              <td style={tdStyleR}>{fmt(c.mndT)}</td>
+                              <td style={tdStyleR}>{fmt(c.mndA)}</td>
+                              <td style={{...tdStyleR, color:pctColor(mp2), fontWeight:600}}>{c.mndT > 0 ? mp2.toFixed(0)+"%" : "—"}</td>
+                              <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(c.pndT)}</td>
+                              <td style={tdStyleR}>{fmt(c.pndA)}</td>
+                              <td style={{...tdStyleR, color:pctColor(pp2), fontWeight:600}}>{c.pndT > 0 ? pp2.toFixed(0)+"%" : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+                  <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
+                    <td style={tdStyle}>TOTAL</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndA)}</td>
+                    <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.mndA, C.divisionTotals.mndT))}}>
+                      {C.divisionTotals.mndT > 0 ? pct(C.divisionTotals.mndA, C.divisionTotals.mndT).toFixed(0)+"%" : "—"}
+                    </td>
+                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.pndA)}</td>
+                    <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.pndA, C.divisionTotals.pndT))}}>
+                      {C.divisionTotals.pndT > 0 ? pct(C.divisionTotals.pndA, C.divisionTotals.pndT).toFixed(0)+"%" : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
+              PND = SM · SIM · STC · PED PWD · PED RPB &nbsp;·&nbsp; MND = ENS PWD · ENS RPB · GLU PWD · GLU RPB · PRO
             </div>
           </Panel>
 
