@@ -37,13 +37,37 @@ const SUB_BRANDS = [
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // === Excel export helper ===
+// Uses the SheetJS library when available; otherwise falls back to a built-in
+// CSV download that needs no external CDN (so it still works on locked-down
+// company networks that block cdn.sheetjs.com). CSV opens directly in Excel.
+const downloadCSV = (rows, filename) => {
+  const headers = Object.keys(rows[0]);
+  const esc = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [headers.join(",")]
+    .concat(rows.map(r => headers.map(h => esc(r[h])).join(",")))
+    .join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = String(filename || "export.xlsx").replace(/\.xlsx$/i, ".csv");
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 const exportToExcel = (rows, filename, sheetName) => {
   if (!rows || rows.length === 0) {
     alert("No data to export with current filters.");
     return;
   }
   if (typeof XLSX === "undefined") {
-    alert("Excel library not loaded. Refresh the page and try again.");
+    // Library blocked/unavailable — fall back to CSV so export still works.
+    downloadCSV(rows, filename);
     return;
   }
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -2790,9 +2814,9 @@ function Panel({ title, children, action }) {
     }}>
       <div style={{
         fontSize:12, fontWeight:600, color:"#111827", marginBottom:10,
-        display:"flex", alignItems:"center", gap:8,
+        display:"flex", alignItems:"center", gap:8, flexWrap:"wrap",
       }}>
-        <span>{title}</span>
+        <span style={{flex:"1 1 auto", minWidth:0}}>{title}</span>
         {action}
       </div>
       {children}
