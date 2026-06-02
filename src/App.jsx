@@ -100,6 +100,15 @@ const fmt = (n) => {
   if (n === 0) return "0";
   return Math.round(n).toLocaleString();
 };
+// Compact money format ($2.69M / $543.5K / $812 / -$1.2K) for the sales matrix.
+const fmtMoney = (n) => {
+  if (n == null || isNaN(n)) return "—";
+  if (n === 0) return "$0";
+  const a = Math.abs(n), sign = n < 0 ? "-" : "";
+  if (a >= 1e6) return sign + "$" + (a / 1e6).toFixed(2) + "M";
+  if (a >= 1e3) return sign + "$" + (a / 1e3).toFixed(1) + "K";
+  return sign + "$" + Math.round(a);
+};
 const pct = (a, t) => (t > 0 ? (a / t) * 100 : 0);
 const pctColor = (p) => {
   if (p >= 100) return "#059669";
@@ -2511,13 +2520,27 @@ function Dashboard({ user, raw, onLogout }) {
         { let y = 2025, mm = 1; while (y * 100 + mm <= maxP) { periods.push(y * 100 + mm); mm++; if (mm > 12) { mm = 1; y++; } } }
         const pLabel = (p) => MONTH_NAMES[(p % 100) - 1] + "-" + String(Math.floor(p / 100)).slice(2);
 
+        // Group the months by calendar year (auto-extends as new months/years arrive).
+        const yearGroups = [];
+        periods.forEach(p => {
+          const y = Math.floor(p / 100);
+          let g = yearGroups.find(x => x.year === y);
+          if (!g) { g = { year: y, periods: [] }; yearGroups.push(g); }
+          g.periods.push(p);
+        });
+
         const rows = (RAW.customerMonthly || []).map(cu => {
           const srObj = cu.sr ? RAW.srs.find(s => s.code === cu.sr) : null;
           const srName = srObj ? srObj.name : (cu.sr ? ("SR " + cu.sr) : "—");
+          const yr = {};
+          yearGroups.forEach(g => {
+            const sum = g.periods.reduce((s, p) => s + (cu.p[p] || 0), 0);
+            yr[g.year] = { sum, avg: sum / g.periods.length };
+          });
           let gap = 0;
           for (let i = periods.length - 1; i >= 0; i--) { if ((cu.p[periods[i]] || 0) > 0) break; gap++; }
           const total = periods.reduce((s, p) => s + (cu.p[p] || 0), 0);
-          return { ...cu, srName, gap, total };
+          return { ...cu, srName, yr, gap, total };
         });
 
         let scoped = rows;
@@ -2535,23 +2558,33 @@ function Dashboard({ user, raw, onLogout }) {
         if (lapseFilter === "3") view = view.filter(r => r.gap >= 3);
         else if (lapseFilter === "6") view = view.filter(r => r.gap >= 6);
         else if (lapseFilter === "12") view = view.filter(r => r.gap >= 12);
-        view = [...view].sort((a, b) => (b.gap - a.gap) || (b.total - a.total));
+        view = [...view].sort((a, b) => b.total - a.total);
 
         const stickyHead = { position: "sticky", top: 0, zIndex: 2, background: "#f9fafb" };
-        const stickyName = { position: "sticky", left: 0, zIndex: 1, background: "#fff", minWidth: 150, maxWidth: 150 };
-        const stickyCorner = { ...stickyHead, left: 0, zIndex: 3, minWidth: 150, maxWidth: 150 };
+        const stickyName = { position: "sticky", left: 0, zIndex: 1, background: "#fff", minWidth: 160, maxWidth: 160 };
+        const stickyCorner = { ...stickyHead, left: 0, zIndex: 3, minWidth: 160, maxWidth: 160 };
+        const sumColTh = { ...stickyHead, ...thStyleR, borderLeft: "2px solid #cbd5e1", whiteSpace: "nowrap", background: "#eef2ff" };
+        const sumColTd = { ...tdStyleR, borderLeft: "2px solid #e5e7eb", fontWeight: 700, background: "#f8fafc", whiteSpace: "nowrap" };
+        const colCount = 3 + yearGroups.reduce((s, g) => s + g.periods.length + 2, 0) + 1;
 
         const exportRows = () => {
           const out = view.map(r => {
-            const o = {
-              "Customer Code": r.c, "Customer Name": r.n, "SR": r.srName, "Manager (FLM)": r.f || "—",
-            };
-            periods.forEach(p => { o[pLabel(p)] = Math.round(r.p[p] || 0); });
+            const o = { "Customer Code": r.c, "Customer Name": r.n, "SR": r.srName, "Manager (FLM)": r.f || "—" };
+            yearGroups.forEach(g => {
+              g.periods.forEach(p => { o[pLabel(p)] = Math.round(r.p[p] || 0); });
+              o[g.year + " Total"] = Math.round(r.yr[g.year].sum);
+              o[g.year + " Avg"] = Math.round(r.yr[g.year].avg);
+            });
             o["Months Since Last Purchase"] = r.gap;
-            o["Total"] = Math.round(r.total);
             return o;
           });
           exportToExcel(out, `CustomerSales_to_${pLabel(maxP)}.xlsx`, "Customer Sales");
+        };
+
+        const cell = (v) => {
+          if (v === 0) return { ...tdStyleR, background: "#fef0c7", color: "#dc2626", fontWeight: 600 };
+          if (v < 0) return { ...tdStyleR, color: "#b45309" };
+          return tdStyleR;
         };
 
         return (
@@ -2564,7 +2597,7 @@ function Dashboard({ user, raw, onLogout }) {
               <Metric label="No Purchase 12M+" value={String(cnt12)} accent="#dc2626" />
             </div>
 
-            <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · 0 sales shown in amber"}
+            <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · per-year Total & Avg · $0 in red"}
               action={
                 <div style={{marginLeft:"auto", display:"flex", gap:6, alignItems:"center"}}>
                   <select value={lapseFilter} onChange={e => setLapseFilter(e.target.value)} style={selectStyle}>
@@ -2577,7 +2610,7 @@ function Dashboard({ user, raw, onLogout }) {
                 </div>
               }>
               <div style={{fontSize:10, color:"#6b7280", marginBottom:6}}>
-                Showing {view.length.toLocaleString()} customers · filters (FLM / SR / search) apply · Ethical sales, negatives counted as 0.
+                Showing {view.length.toLocaleString()} customers · sorted by total · filters (FLM / SR / search) apply · header frozen · auto-extends each month.
               </div>
               <div style={{overflow:"auto", maxHeight:"70vh", border:"1px solid #f3f4f6", borderRadius:6}}>
                 <table style={{...tblStyle, fontSize:11}}>
@@ -2586,34 +2619,42 @@ function Dashboard({ user, raw, onLogout }) {
                       <th style={{...stickyCorner, ...thStyle, textAlign:"left"}}>Customer</th>
                       <th style={{...stickyHead, ...thStyle}}>SR</th>
                       <th style={{...stickyHead, ...thStyle}}>Manager</th>
-                      {periods.map(p => <th key={p} style={{...stickyHead, ...thStyleR, whiteSpace:"nowrap"}}>{pLabel(p)}</th>)}
-                      <th style={{...stickyHead, ...thStyleR, borderLeft:"1px solid #e5e7eb"}}>Gap</th>
-                      <th style={{...stickyHead, ...thStyleR}}>Total</th>
+                      {yearGroups.map(g => (
+                        <React.Fragment key={g.year}>
+                          {g.periods.map(p => <th key={p} style={{...stickyHead, ...thStyleR, whiteSpace:"nowrap"}}>{pLabel(p)}</th>)}
+                          <th style={sumColTh}>{g.year} Total</th>
+                          <th style={{...sumColTh, borderLeft:"1px solid #c7d2fe"}}>{g.year} Avg</th>
+                        </React.Fragment>
+                      ))}
+                      <th style={{...stickyHead, ...thStyleR, borderLeft:"2px solid #cbd5e1"}}>Gap</th>
                     </tr>
                   </thead>
                   <tbody>
                     {view.length === 0 && (
-                      <tr><td style={tdStyle} colSpan={periods.length + 5}>No customers match the current filters.</td></tr>
+                      <tr><td style={tdStyle} colSpan={colCount}>No customers match the current filters.</td></tr>
                     )}
                     {view.map(r => (
                       <tr key={r.c} style={{borderTop:"1px solid #f3f4f6"}}>
                         <td style={{...stickyName, ...tdStyle}}>
-                          <div style={{fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:142}}>{r.n}</div>
+                          <div style={{fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:152}}>{r.n}</div>
                           <div style={{fontSize:9, color:"#9ca3af", fontFamily:"monospace"}}>{r.c}</div>
                         </td>
                         <td style={tdStyle}>{r.srName}</td>
                         <td style={tdStyle}>{r.f || "—"}</td>
-                        {periods.map(p => {
-                          const v = r.p[p] || 0;
-                          return v > 0
-                            ? <td key={p} style={tdStyleR}>{fmt(v)}</td>
-                            : <td key={p} style={{...tdStyleR, background:"#fef0c7", color:"#b45309", fontWeight:600}}>0</td>;
-                        })}
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb", fontWeight:700,
+                        {yearGroups.map(g => (
+                          <React.Fragment key={g.year}>
+                            {g.periods.map(p => {
+                              const v = r.p[p] || 0;
+                              return <td key={p} style={cell(v)}>{fmtMoney(v)}</td>;
+                            })}
+                            <td style={sumColTd}>{fmtMoney(r.yr[g.year].sum)}</td>
+                            <td style={{...sumColTd, borderLeft:"1px solid #eef2ff", color:"#4338ca"}}>{fmtMoney(r.yr[g.year].avg)}</td>
+                          </React.Fragment>
+                        ))}
+                        <td style={{...tdStyleR, borderLeft:"2px solid #e5e7eb", fontWeight:700,
                           color: r.gap >= 12 ? "#dc2626" : r.gap >= 6 ? "#ea580c" : r.gap >= 3 ? "#d97706" : "#059669"}}>
                           {r.gap}
                         </td>
-                        <td style={{...tdStyleR, fontWeight:600}}>{fmt(r.total)}</td>
                       </tr>
                     ))}
                   </tbody>
