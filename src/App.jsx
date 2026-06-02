@@ -296,6 +296,8 @@ function Dashboard({ user, raw, onLogout }) {
   const [custFilter, setCustFilter] = useState("All");
   const [custSearch, setCustSearch] = useState("");
   const [lapseFilter, setLapseFilter] = useState("all"); // Customer Sales tab: all / 3 / 6 / 12
+  const [custSortKey, setCustSortKey] = useState("total"); // Customer Sales sort column
+  const [custSortDir, setCustSortDir] = useState("desc");
 
   // Expanded FLM rows
   const [expanded, setExpanded] = useState({});
@@ -2549,7 +2551,27 @@ function Dashboard({ user, raw, onLogout }) {
         if (lapseFilter === "3") view = view.filter(r => r.gap >= 3);
         else if (lapseFilter === "6") view = view.filter(r => r.gap >= 6);
         else if (lapseFilter === "12") view = view.filter(r => r.gap >= 12);
-        view = [...view].sort((a, b) => b.total - a.total);
+
+        const sortVal = (r, key) => {
+          if (key === "name") return (r.n || "").toLowerCase();
+          if (key === "gap") return r.gap;
+          if (key === "total") return r.total;
+          if (key[0] === "p") return r.p[Number(key.slice(1))] || 0;
+          if (key.slice(0, 2) === "yt") return (r.yr[Number(key.slice(2))] || {}).sum || 0;
+          if (key.slice(0, 2) === "ya") return (r.yr[Number(key.slice(2))] || {}).avg || 0;
+          return 0;
+        };
+        const sdir = custSortDir === "asc" ? 1 : -1;
+        view = [...view].sort((a, b) => {
+          const va = sortVal(a, custSortKey), vb = sortVal(b, custSortKey);
+          if (typeof va === "string") return va.localeCompare(vb) * sdir;
+          return (va - vb) * sdir;
+        });
+        const sortBy = (key, defDir) => {
+          if (custSortKey === key) setCustSortDir(d => d === "asc" ? "desc" : "asc");
+          else { setCustSortKey(key); setCustSortDir(defDir || "desc"); }
+        };
+        const caret = (key) => custSortKey === key ? (custSortDir === "asc" ? " ▲" : " ▼") : "";
 
         const stickyHead = { position: "sticky", top: 0, zIndex: 2, background: "#f9fafb" };
         const stickyName = { position: "sticky", left: 0, zIndex: 1, background: "#fff", minWidth: 160, maxWidth: 160 };
@@ -2590,7 +2612,10 @@ function Dashboard({ user, raw, onLogout }) {
 
             <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · per-year Total & Avg · 0 in red"}
               action={
-                <div style={{marginLeft:"auto", display:"flex", gap:6, alignItems:"center"}}>
+                <div style={{marginLeft:"auto", display:"flex", gap:6, alignItems:"center", flexWrap:"wrap"}}>
+                  <input value={custSearch} onChange={e => setCustSearch(e.target.value)}
+                    placeholder="🔍 Search customer / code…"
+                    style={{...selectStyle, minWidth:180, padding:"4px 8px"}} />
                   <select value={lapseFilter} onChange={e => setLapseFilter(e.target.value)} style={selectStyle}>
                     <option value="all">All customers</option>
                     <option value="3">Not purchased 3M+</option>
@@ -2601,23 +2626,25 @@ function Dashboard({ user, raw, onLogout }) {
                 </div>
               }>
               <div style={{fontSize:10, color:"#6b7280", marginBottom:6}}>
-                Showing {view.length.toLocaleString()} customers · sorted by total · filters (FLM / SR / search) apply · header frozen · auto-extends each month.
+                Showing {view.length.toLocaleString()} customers · click a column header to sort · filters (FLM / SR / search) apply · header frozen.
               </div>
               <div style={{overflow:"auto", maxHeight:"70vh", border:"1px solid #f3f4f6", borderRadius:6}}>
                 <table style={{...tblStyle, fontSize:11}}>
                   <thead>
                     <tr>
-                      <th style={{...stickyCorner, ...thStyle, textAlign:"left"}}>Customer</th>
+                      <th onClick={() => sortBy("name", "asc")} style={{...stickyCorner, ...thStyle, textAlign:"left", cursor:"pointer"}}>Customer{caret("name")}</th>
                       <th style={{...stickyHead, ...thStyle}}>SR</th>
                       <th style={{...stickyHead, ...thStyle}}>Manager</th>
                       {yearGroups.map(g => (
                         <React.Fragment key={g.year}>
-                          {g.periods.map(p => <th key={p} style={{...stickyHead, ...thStyleR, whiteSpace:"nowrap"}}>{pLabel(p)}</th>)}
-                          <th style={sumColTh}>{g.year} Total</th>
-                          <th style={{...sumColTh, borderLeft:"1px solid #c7d2fe"}}>{g.year} Avg</th>
+                          {g.periods.map(p => (
+                            <th key={p} onClick={() => sortBy("p"+p)} style={{...stickyHead, ...thStyleR, whiteSpace:"nowrap", cursor:"pointer"}}>{pLabel(p)}{caret("p"+p)}</th>
+                          ))}
+                          <th onClick={() => sortBy("yt"+g.year)} style={{...sumColTh, cursor:"pointer"}}>{g.year} Total{caret("yt"+g.year)}</th>
+                          <th onClick={() => sortBy("ya"+g.year)} style={{...sumColTh, borderLeft:"1px solid #c7d2fe", cursor:"pointer"}}>{g.year} Avg{caret("ya"+g.year)}</th>
                         </React.Fragment>
                       ))}
-                      <th style={{...stickyHead, ...thStyleR, borderLeft:"2px solid #cbd5e1"}}>Gap</th>
+                      <th onClick={() => sortBy("gap")} style={{...stickyHead, ...thStyleR, borderLeft:"2px solid #cbd5e1", cursor:"pointer"}}>Gap{caret("gap")}</th>
                     </tr>
                   </thead>
                   <tbody>
