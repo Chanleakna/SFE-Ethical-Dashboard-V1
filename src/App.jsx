@@ -708,8 +708,10 @@ function Dashboard({ user, raw, onLogout }) {
                     "Total Actual": Math.round(card.totalA),
                     "Variance": Math.round(card.totalA - card.totalT),
                     "% Achievement": card.totalT > 0 ? card.totalPct.toFixed(1) + "%" : "—",
+                    "MND Target": Math.round(card.mndT),
                     "MND Actual": Math.round(card.mndA),
                     "MND %": card.mndT > 0 ? ((card.mndA/card.mndT)*100).toFixed(0) + "%" : "—",
+                    "PND Target": Math.round(card.pndT),
                     "PND Actual": Math.round(card.pndA),
                     "PND %": card.pndT > 0 ? ((card.pndA/card.pndT)*100).toFixed(0) + "%" : "—",
                   });
@@ -725,9 +727,11 @@ function Dashboard({ user, raw, onLogout }) {
                   <th style={thStyleR}>Actual</th>
                   <th style={thStyleR}>Var</th>
                   <th style={thStyleR}>%</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>MND Act</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>MND Tgt</th>
+                  <th style={thStyleR}>MND Act</th>
                   <th style={thStyleR}>MND %</th>
-                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Act</th>
+                  <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb"}}>PND Tgt</th>
+                  <th style={thStyleR}>PND Act</th>
                   <th style={thStyleR}>PND %</th>
                   <th style={{...thStyle, borderLeft:"1px solid #e5e7eb"}}>Progress</th>
                 </tr></thead>
@@ -757,9 +761,11 @@ function Dashboard({ user, raw, onLogout }) {
                         <td style={{...tdStyleR, color:pctColor(f.pct), fontWeight:700}}>
                           {f.pct.toFixed(1)}%
                         </td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.mndA)}</td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.mndT)}</td>
+                        <td style={tdStyleR}>{fmt(dv.mndA)}</td>
                         <td style={{...tdStyleR, color:pctColor(mp), fontWeight:600}}>{dv.mndT > 0 ? mp.toFixed(0)+"%" : "—"}</td>
-                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.pndA)}</td>
+                        <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(dv.pndT)}</td>
+                        <td style={tdStyleR}>{fmt(dv.pndA)}</td>
                         <td style={{...tdStyleR, color:pctColor(pp), fontWeight:600}}>{dv.pndT > 0 ? pp.toFixed(0)+"%" : "—"}</td>
                         <td style={{...tdStyle, borderLeft:"1px solid #e5e7eb"}}><Bar2 pct={f.pct} /></td>
                       </tr>
@@ -783,9 +789,11 @@ function Dashboard({ user, raw, onLogout }) {
                             <td style={{...tdStyleR, color:pctColor(card.totalPct), fontWeight:600}}>
                               {card.totalPct.toFixed(0)}%
                             </td>
-                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.mndA)}</td>
+                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.mndT)}</td>
+                            <td style={tdStyleR}>{fmt(card.mndA)}</td>
                             <td style={{...tdStyleR, color:pctColor(cmp), fontWeight:600}}>{card.mndT > 0 ? cmp.toFixed(0)+"%" : "—"}</td>
-                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.pndA)}</td>
+                            <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(card.pndT)}</td>
+                            <td style={tdStyleR}>{fmt(card.pndA)}</td>
                             <td style={{...tdStyleR, color:pctColor(cpp), fontWeight:600}}>{card.pndT > 0 ? cpp.toFixed(0)+"%" : "—"}</td>
                             <td style={{...tdStyle, borderLeft:"1px solid #e5e7eb"}}><Bar2 pct={card.totalPct} /></td>
                           </tr>
@@ -804,11 +812,13 @@ function Dashboard({ user, raw, onLogout }) {
                     <td style={{...tdStyleR, color:pctColor(overallPct)}}>
                       {overallPct.toFixed(1)}%
                     </td>
-                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.mndA)}</td>
+                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.mndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.mndA)}</td>
                     <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.mndA, C.divisionTotals.mndT))}}>
                       {C.divisionTotals.mndT > 0 ? pct(C.divisionTotals.mndA, C.divisionTotals.mndT).toFixed(0)+"%" : "—"}
                     </td>
-                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndA)}</td>
+                    <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(C.divisionTotals.pndT)}</td>
+                    <td style={tdStyleR}>{fmt(C.divisionTotals.pndA)}</td>
                     <td style={{...tdStyleR, color:pctColor(pct(C.divisionTotals.pndA, C.divisionTotals.pndT))}}>
                       {C.divisionTotals.pndT > 0 ? pct(C.divisionTotals.pndA, C.divisionTotals.pndT).toFixed(0)+"%" : "—"}
                     </td>
