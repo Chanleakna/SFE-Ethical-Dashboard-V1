@@ -100,15 +100,6 @@ const fmt = (n) => {
   if (n === 0) return "0";
   return Math.round(n).toLocaleString();
 };
-// Compact money format ($2.69M / $543.5K / $812 / -$1.2K) for the sales matrix.
-const fmtMoney = (n) => {
-  if (n == null || isNaN(n)) return "—";
-  if (n === 0) return "$0";
-  const a = Math.abs(n), sign = n < 0 ? "-" : "";
-  if (a >= 1e6) return sign + "$" + (a / 1e6).toFixed(2) + "M";
-  if (a >= 1e3) return sign + "$" + (a / 1e3).toFixed(1) + "K";
-  return sign + "$" + Math.round(a);
-};
 const pct = (a, t) => (t > 0 ? (a / t) * 100 : 0);
 const pctColor = (p) => {
   if (p >= 100) return "#059669";
@@ -2597,7 +2588,7 @@ function Dashboard({ user, raw, onLogout }) {
               <Metric label="No Purchase 12M+" value={String(cnt12)} accent="#dc2626" />
             </div>
 
-            <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · per-year Total & Avg · $0 in red"}
+            <Panel title={"Customer Monthly Sales (Jan-25 → " + pLabel(maxP) + ") · per-year Total & Avg · 0 in red"}
               action={
                 <div style={{marginLeft:"auto", display:"flex", gap:6, alignItems:"center"}}>
                   <select value={lapseFilter} onChange={e => setLapseFilter(e.target.value)} style={selectStyle}>
@@ -2645,10 +2636,10 @@ function Dashboard({ user, raw, onLogout }) {
                           <React.Fragment key={g.year}>
                             {g.periods.map(p => {
                               const v = r.p[p] || 0;
-                              return <td key={p} style={cell(v)}>{fmtMoney(v)}</td>;
+                              return <td key={p} style={cell(v)}>{fmt(v)}</td>;
                             })}
-                            <td style={sumColTd}>{fmtMoney(r.yr[g.year].sum)}</td>
-                            <td style={{...sumColTd, borderLeft:"1px solid #eef2ff", color:"#4338ca"}}>{fmtMoney(r.yr[g.year].avg)}</td>
+                            <td style={sumColTd}>{fmt(r.yr[g.year].sum)}</td>
+                            <td style={{...sumColTd, borderLeft:"1px solid #eef2ff", color:"#4338ca"}}>{fmt(r.yr[g.year].avg)}</td>
                           </React.Fragment>
                         ))}
                         <td style={{...tdStyleR, borderLeft:"2px solid #e5e7eb", fontWeight:700,
