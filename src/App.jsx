@@ -178,7 +178,47 @@ export default function App() {
     </div>
   );
 
-  return <Dashboard user={user} raw={raw} onLogout={() => setUser(null)} />;
+  return (
+    <ErrorBoundary onReset={() => setUser(null)}>
+      <Dashboard user={user} raw={raw} onLogout={() => setUser(null)} />
+    </ErrorBoundary>
+  );
+}
+
+// Catches render errors in any tab so a crash shows a message instead of a blank
+// white screen — and surfaces the exact error so it can be diagnosed.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { try { console.error("Dashboard crash:", error, info); } catch (e) {} }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{padding:24, fontFamily:"system-ui", maxWidth:720, margin:"40px auto"}}>
+          <h2 style={{color:"#dc2626", margin:"0 0 8px"}}>Something went wrong on this view</h2>
+          <p style={{color:"#6b7280", fontSize:13}}>
+            The page hit an error and stopped rendering. Try reloading. If it keeps happening,
+            please screenshot the message below so it can be fixed.
+          </p>
+          <pre style={{background:"#fef2f2", color:"#991b1b", padding:12, borderRadius:8,
+            fontSize:12, whiteSpace:"pre-wrap", overflowX:"auto"}}>
+            {String(this.state.error && this.state.error.message || this.state.error)}
+          </pre>
+          <div style={{display:"flex", gap:8, marginTop:10}}>
+            <button onClick={() => { this.setState({ error: null }); }}
+              style={{background:"#2563eb", color:"#fff", border:"none", borderRadius:6, padding:"8px 14px", cursor:"pointer"}}>
+              Try again
+            </button>
+            <button onClick={() => window.location.reload()}
+              style={{background:"#fff", color:"#111827", border:"1px solid #d1d5db", borderRadius:6, padding:"8px 14px", cursor:"pointer"}}>
+              Reload page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function Login({ onLogin }) {
@@ -2567,6 +2607,9 @@ function Dashboard({ user, raw, onLogout }) {
           if (typeof va === "string") return va.localeCompare(vb) * sdir;
           return (va - vb) * sdir;
         });
+        const RENDER_CAP = 300;
+        const shown = view.slice(0, RENDER_CAP);
+        const truncated = view.length > RENDER_CAP;
         const sortBy = (key, defDir) => {
           if (custSortKey === key) setCustSortDir(d => d === "asc" ? "desc" : "asc");
           else { setCustSortKey(key); setCustSortDir(defDir || "desc"); }
@@ -2626,7 +2669,9 @@ function Dashboard({ user, raw, onLogout }) {
                 </div>
               }>
               <div style={{fontSize:10, color:"#6b7280", marginBottom:6}}>
-                Showing {view.length.toLocaleString()} customers · click a column header to sort · filters (FLM / SR / search) apply · header frozen.
+                {truncated
+                  ? "Showing top " + RENDER_CAP + " of " + view.length.toLocaleString() + " — use search / sort to narrow, or Export for the full list."
+                  : "Showing " + view.length.toLocaleString() + " customers"} · click a column header to sort · filters apply · header frozen.
               </div>
               <div style={{overflow:"auto", maxHeight:"70vh", border:"1px solid #f3f4f6", borderRadius:6}}>
                 <table style={{...tblStyle, fontSize:11}}>
@@ -2651,7 +2696,7 @@ function Dashboard({ user, raw, onLogout }) {
                     {view.length === 0 && (
                       <tr><td style={tdStyle} colSpan={colCount}>No customers match the current filters.</td></tr>
                     )}
-                    {view.map(r => (
+                    {shown.map(r => (
                       <tr key={r.c} style={{borderTop:"1px solid #f3f4f6"}}>
                         <td style={{...stickyName, ...tdStyle}}>
                           <div style={{fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:152}}>{r.n}</div>
