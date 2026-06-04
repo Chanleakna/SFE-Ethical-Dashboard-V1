@@ -565,17 +565,24 @@ function buildDashboardPayload() {
     });
   });
 
-  // === FIX: Shop Around customer-level sales now ALSO filter to Ethical only ===
+  // Per-period, per-customer sales maps (built in a single pass):
+  //  - dailyByPeriodCust: ETHICAL only — used by Active 3-mo.
+  //  - shopByPeriodCust:  ALL departments — used by Shop Around. EXCEPTION:
+  //    shop-around customers usually book their purchases under TRADE (not
+  //    Ethical), so Shop Around must count their sales regardless of department.
   const dailyByPeriodCust = {};
-  daily.forEach(r => {
-    if (!isEthical(r['Dep'])) return;  // Only count Ethical sales for Shop Around
+  const shopByPeriodCust = {};
+  daily.forEach(function (r) {
     const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
     const c = Number(r['Customer Code']);
     if (!c) return;
+    const sales = Number(r['Total Act. Sales']) || 0;  // negatives included (matches Export)
+    if (!shopByPeriodCust[period]) shopByPeriodCust[period] = {};
+    shopByPeriodCust[period][c] = (shopByPeriodCust[period][c] || 0) + sales;
+    if (!isEthical(r['Dep'])) return;  // everything below is Ethical-only
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
-    // Match the Export tab exactly — negatives included.
-    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + (Number(r['Total Act. Sales']) || 0);
+    dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + sales;
   });
 
   // === SHOP AROUND ===
@@ -616,7 +623,7 @@ function buildDashboardPayload() {
       }
       
       const fullActual = isPlaceholder ? 0
-        : ((dailyByPeriodCust[period] && dailyByPeriodCust[period][numCust]) || 0);
+        : ((shopByPeriodCust[period] && shopByPeriodCust[period][numCust]) || 0);
       
       const shareCount = (!isPlaceholder && shopSharedCount[numCust]) ? shopSharedCount[numCust] : 1;
       
