@@ -101,19 +101,17 @@ const fmt = (n) => {
   return Math.round(n).toLocaleString();
 };
 const pct = (a, t) => (t > 0 ? (a / t) * 100 : 0);
-// Latest month (1-12) that has SUBSTANTIAL sales — used as the default month so a
-// just-started calendar month (still nearly empty) doesn't show blank KPIs.
+// Latest month (1-12) that has any sales — used as the default month so the
+// dashboard opens on the most recent month that actually has data (and only
+// advances to a new month once that month has its first sales).
 const latestDataMonth = (raw) => {
   const fallback = new Date().getMonth() + 1;
   if (!raw || !Array.isArray(raw.actuals)) return fallback;
   const totals = {};
   raw.actuals.forEach(r => { totals[r.m] = (totals[r.m] || 0) + (r.v || 0); });
-  const months = Object.keys(totals).map(Number);
+  const months = Object.keys(totals).map(Number).filter(m => totals[m] > 0);
   if (!months.length) return fallback;
-  const maxTotal = Math.max.apply(null, months.map(m => totals[m]));
-  // Keep months with at least 30% of the biggest month, then take the latest.
-  const solid = months.filter(m => totals[m] >= maxTotal * 0.3);
-  return Math.max.apply(null, (solid.length ? solid : months));
+  return Math.max.apply(null, months);
 };
 const pctColor = (p) => {
   if (p >= 100) return "#059669";
