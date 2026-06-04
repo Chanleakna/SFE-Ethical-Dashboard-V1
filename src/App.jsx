@@ -101,6 +101,20 @@ const fmt = (n) => {
   return Math.round(n).toLocaleString();
 };
 const pct = (a, t) => (t > 0 ? (a / t) * 100 : 0);
+// Latest month (1-12) that has SUBSTANTIAL sales — used as the default month so a
+// just-started calendar month (still nearly empty) doesn't show blank KPIs.
+const latestDataMonth = (raw) => {
+  const fallback = new Date().getMonth() + 1;
+  if (!raw || !Array.isArray(raw.actuals)) return fallback;
+  const totals = {};
+  raw.actuals.forEach(r => { totals[r.m] = (totals[r.m] || 0) + (r.v || 0); });
+  const months = Object.keys(totals).map(Number);
+  if (!months.length) return fallback;
+  const maxTotal = Math.max.apply(null, months.map(m => totals[m]));
+  // Keep months with at least 30% of the biggest month, then take the latest.
+  const solid = months.filter(m => totals[m] >= maxTotal * 0.3);
+  return Math.max.apply(null, (solid.length ? solid : months));
+};
 const pctColor = (p) => {
   if (p >= 100) return "#059669";
   if (p >= 80)  return "#d97706";
@@ -328,9 +342,11 @@ function Dashboard({ user, raw, onLogout }) {
   const [auto, setAuto] = useState(true);
   const [tab, setTab] = useState("summary");
 
-  // Filters
+  // Filters. Month defaults to the latest month that actually has substantial
+  // sales — NOT the live calendar month — so a freshly-started month (still
+  // mostly empty) doesn't make the dashboard look blank.
   const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [month, setMonth] = useState(() => latestDataMonth(raw));
   const [flm, setFlm] = useState(user.role === "FLM" ? user.flm : "All");
   const [srFilter, setSrFilter] = useState("All");
   const [custFilter, setCustFilter] = useState("All");
