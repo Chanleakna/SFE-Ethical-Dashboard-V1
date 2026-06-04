@@ -248,9 +248,33 @@ function importDailyFromEmail() {
     return { ok: false, error: 'Attachment had no data rows' };
   }
 
-  // Replace the Export tab with the new data (full dataset each morning).
+  // === SAFETY VALIDATION — never wipe a good Export with a bad/mismatched file ===
+  const headers = values[0].map(function (h) { return String(h).trim(); });
+  const REQUIRED = ['Customer Code', 'Total Act. Sales', 'Year', 'Short Cut', 'Dep'];
+  const missing = REQUIRED.filter(function (h) { return headers.indexOf(h) < 0; });
+  if (missing.length) {
+    Logger.log('Import ABORTED — attachment missing columns: ' + missing.join(', '));
+    return { ok: false, error: 'Attachment missing expected columns (' + missing.join(', ') + '). Export left unchanged.' };
+  }
+
   const ss = SpreadsheetApp.openById(SHEET_IDS.daily);
   let sheet = ss.getSheetByName(TAB_NAMES.daily);
+  const newRows = values.length - 1;
+  const curRows = sheet ? Math.max(0, sheet.getLastRow() - 1) : 0;
+  // Refuse to replace good data with a suspiciously small file.
+  if (newRows < 50 || (curRows > 0 && newRows < curRows * 0.5)) {
+    Logger.log('Import ABORTED — new file has ' + newRows + ' rows vs current ' + curRows + '.');
+    return { ok: false, error: 'New file had only ' + newRows + ' rows (current ' + curRows + '). Looks wrong — Export left unchanged.' };
+  }
+
+  // Back up the current Export before replacing, so a bad import is recoverable in-sheet.
+  if (sheet && curRows > 0) {
+    const oldBak = ss.getSheetByName('Export_BACKUP');
+    if (oldBak) ss.deleteSheet(oldBak);
+    sheet.copyTo(ss).setName('Export_BACKUP');
+  }
+
+  // Replace the Export tab with the new data (full dataset each morning).
   if (!sheet) sheet = ss.insertSheet(TAB_NAMES.daily);
   sheet.clearContents();
   sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
@@ -258,8 +282,8 @@ function importDailyFromEmail() {
   // Serve the fresh data immediately.
   try { CacheService.getScriptCache().remove('dashboard_data'); } catch (e) {}
 
-  Logger.log('Imported ' + (values.length - 1) + ' rows (email dated ' + latestMsg.getDate() + ').');
-  return { ok: true, rows: values.length - 1, emailDate: latestMsg.getDate() };
+  Logger.log('Imported ' + newRows + ' rows (email dated ' + latestMsg.getDate() + ').');
+  return { ok: true, rows: newRows, emailDate: latestMsg.getDate() };
 }
 
 // Schedule importDailyFromEmail() to run every morning (~7am script timezone).
