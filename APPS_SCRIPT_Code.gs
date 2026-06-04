@@ -483,6 +483,14 @@ function buildDashboardPayload() {
 
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
   const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+  // Robust month parser: accepts 'Jun', 'June', 'JUNE', ' june ', 'Sept', etc.
+  // (any casing / full or short name) so no month's sales are silently dropped.
+  const M3 = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const mapMonth = function (s) {
+    if (s == null || s === '') return undefined;
+    if (MONTH_MAP[s] != null) return MONTH_MAP[s];
+    return M3[String(s).trim().toLowerCase().slice(0, 3)];
+  };
 
   const custDict = {};
   daily.forEach(r => {
@@ -505,7 +513,7 @@ function buildDashboardPayload() {
     const matCode = Number(r['Material Code']);
     const mat = matMap[matCode];
     if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) return;
-    const monthNum = MONTH_MAP[r['Short Cut']];
+    const monthNum = mapMonth(r['Short Cut']);
     if (!monthNum) return;
     if (Number(r['Year']) !== 2026) return;
     const cust = Number(r['Customer Code']);
@@ -561,7 +569,7 @@ function buildDashboardPayload() {
   const dailyByPeriodCust = {};
   daily.forEach(r => {
     if (!isEthical(r['Dep'])) return;  // Only count Ethical sales for Shop Around
-    const m = MONTH_MAP[r['Short Cut']];
+    const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
     const c = Number(r['Customer Code']);
     if (!c) return;
@@ -647,7 +655,7 @@ function buildDashboardPayload() {
     daily.forEach(r => {
       // === FIX: case-insensitive Ethical filter ===
       if (!isEthical(r['Dep'])) return;
-      const mn = MONTH_MAP[r['Short Cut']];
+      const mn = mapMonth(r['Short Cut']);
       const p = (r['Year'] || 0) * 100 + mn;
       if (periods.indexOf(p) < 0) return;
       const c = Number(r['Customer Code']);
@@ -721,7 +729,7 @@ function buildDashboardPayload() {
     const nm = normName(r['Customer Name']);
     if (!nm) return;
     const sc = String(r['Short Cut'] || '').trim();
-    const mn = MONTH_MAP[sc];
+    const mn = mapMonth(sc);
     if (!mn) return;
     const yr = Number(r['Year']) || 0;
     if (!yr) return;
@@ -936,7 +944,7 @@ function buildDashboardPayload() {
     if (!isEthical(r['Dep'])) return;
     const c = Number(r['Customer Code']);
     if (!c) return;
-    const mn = MONTH_MAP[r['Short Cut']];
+    const mn = mapMonth(r['Short Cut']);
     if (!mn) return;
     const yr = Number(r['Year']) || 0;
     const period = yr * 100 + mn;
