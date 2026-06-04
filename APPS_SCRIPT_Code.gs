@@ -651,16 +651,13 @@ function buildDashboardPayload() {
     // Active 3-mo is the ONLY place negative sales are applied: sum each
     // customer's NET sales across the window and count them active only if the
     // net is positive (returns/credit notes net out a customer's activity).
+    // Reuses dailyByPeriodCust (built once above) instead of re-scanning the
+    // whole daily sheet 12 times — much faster on large data.
     const custNet = {};
-    daily.forEach(r => {
-      // === FIX: case-insensitive Ethical filter ===
-      if (!isEthical(r['Dep'])) return;
-      const mn = mapMonth(r['Short Cut']);
-      const p = (r['Year'] || 0) * 100 + mn;
-      if (periods.indexOf(p) < 0) return;
-      const c = Number(r['Customer Code']);
-      if (!c) return;
-      custNet[c] = (custNet[c] || 0) + (Number(r['Total Act. Sales']) || 0);
+    periods.forEach(function (p) {
+      const pc = dailyByPeriodCust[p];
+      if (!pc) return;
+      Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
     });
     const custs = {};
     Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
