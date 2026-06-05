@@ -1804,6 +1804,95 @@ function Dashboard({ user, raw, onLogout }) {
                 </table>
               </div>
             </Panel>
+
+            {(() => {
+              if (!RAW.customerMonthly) return (
+                <RedeployNotice title="Customer Purchase Trend by SR" feature="The customer purchase trend" />
+              );
+              const maxP = RAW.customerMonthlyMaxPeriod || (year * 100 + month);
+              const periods = [];
+              { let y = 2025, mm = 1; while (y * 100 + mm <= maxP) { periods.push(y * 100 + mm); mm++; if (mm > 12) { mm = 1; y++; } } }
+              const pLabel = (p) => MONTH_NAMES[(p % 100) - 1] + "-" + String(Math.floor(p / 100)).slice(2);
+              const bySR = {};
+              (RAW.customerMonthly || []).forEach(cu => {
+                if (cu.sr == null) return;
+                (bySR[cu.sr] = bySR[cu.sr] || []).push(cu);
+              });
+              const srList = RAW.srs.filter(s =>
+                (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+              const srWithCust = srList.filter(s => (bySR[s.code] || []).length);
+
+              const stHead = { position: "sticky", top: 0, zIndex: 2, background: "#f9fafb" };
+              const stName = { position: "sticky", left: 0, zIndex: 1, background: "#fff", minWidth: 150, maxWidth: 150 };
+              const stCorner = { ...stHead, left: 0, zIndex: 3, minWidth: 150, maxWidth: 150 };
+
+              const exportTrend = () => {
+                const rows = [];
+                srWithCust.forEach(s => (bySR[s.code] || []).forEach(cu => {
+                  const o = { "SR": s.name, "Manager": s.flm, "Customer Code": cu.c, "Customer Name": cu.n };
+                  periods.forEach(p => { o[pLabel(p)] = (cu.p[p] || 0) > 0 ? 1 : 0; });
+                  rows.push(o);
+                }));
+                exportToExcel(rows, `CustomerTrend_bySR_to_${pLabel(maxP)}.xlsx`, "Customer Trend");
+              };
+
+              return (
+                <Panel title="Customer Purchase Trend by SR (1 = bought · 0 = none/return) — click an SR to expand"
+                  action={<ExportBtn onClick={exportTrend} />}>
+                  <div style={{overflow:"auto", maxHeight:"70vh", border:"1px solid #f3f4f6", borderRadius:6}}>
+                    <table style={{...tblStyle, fontSize:11}}>
+                      <thead>
+                        <tr>
+                          <th style={{...stCorner, ...thStyle, textAlign:"left"}}>SR / Customer</th>
+                          {periods.map(p => <th key={p} style={{...stHead, ...thStyleR, whiteSpace:"nowrap"}}>{pLabel(p)}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {srWithCust.length === 0 && (
+                          <tr><td style={tdStyle} colSpan={periods.length + 1}>No SR customers in the current filters.</td></tr>
+                        )}
+                        {srWithCust.map(s => {
+                          const custs = bySR[s.code] || [];
+                          const open = expanded["trend_" + s.code];
+                          return (
+                            <React.Fragment key={s.code}>
+                              <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer", fontWeight:600}}
+                                onClick={() => setExpanded(e => ({ ...e, ["trend_" + s.code]: !e["trend_" + s.code] }))}>
+                                <td style={{...stCorner, ...tdStyle, background:"#fafbfc"}}>
+                                  <span style={{color:"#6b7280", marginRight:6}}>{open ? "▾" : "▸"}</span>
+                                  {s.name}
+                                  <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{custs.length} cust · {s.flm}</span>
+                                </td>
+                                {periods.map(p => {
+                                  const cnt = custs.reduce((a, cu) => a + ((cu.p[p] || 0) > 0 ? 1 : 0), 0);
+                                  return <td key={p} style={{...tdStyleR, color:"#6b7280"}}>{cnt}</td>;
+                                })}
+                              </tr>
+                              {open && custs.map(cu => (
+                                <tr key={cu.c} style={{borderTop:"1px solid #f3f4f6"}}>
+                                  <td style={{...stName, ...tdStyle, paddingLeft:22}}>
+                                    <div style={{whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:128}}>{cu.n}</div>
+                                    <div style={{fontSize:9, color:"#9ca3af", fontFamily:"monospace"}}>{cu.c}</div>
+                                  </td>
+                                  {periods.map(p => {
+                                    const one = (cu.p[p] || 0) > 0;
+                                    return <td key={p} style={{...tdStyleR, fontWeight:700,
+                                      background: one ? "#dcfce7" : "#fef0c7", color: one ? "#15803d" : "#b45309"}}>{one ? 1 : 0}</td>;
+                                  })}
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
+                    The SR row shows how many of its customers bought each month; expand an SR to see each customer's 1/0 trend (1 = purchased, 0 = no purchase or return). Respects FLM / SR filters.
+                  </div>
+                </Panel>
+              );
+            })()}
           </>
         );
       })()}
