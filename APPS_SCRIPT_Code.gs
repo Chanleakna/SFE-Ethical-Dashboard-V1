@@ -715,6 +715,9 @@ function buildDashboardPayload() {
       let srs = [];
       if (SHARED[c]) srs = SHARED[c].map(r => r.sr);
       else if (custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
+      // Dedupe: count each customer ONCE per SR even if they're shared with the
+      // same SR across multiple categories (otherwise the active count inflates).
+      srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
       if (srs.length === 0) {
         flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1;
         return;
