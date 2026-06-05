@@ -43,7 +43,7 @@ const TAB_NAMES = {
 };
 
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
-const CACHE_SECONDS = 300;
+const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import clears it)
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -77,7 +77,7 @@ function doGet(e) {
     if (action === 'accessLog') return jsonResponse(getAccessLog(e.parameter.code));
     if (action === 'health')  return jsonResponse({ ok: true, time: new Date().toISOString() });
     if (action === 'clearCache') {
-      CacheService.getScriptCache().remove('dashboard_data');
+      clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data');
       return jsonResponse({ ok: true, message: 'Cache cleared' });
     }
     return jsonResponse({ error: 'unknown action' });
@@ -279,8 +279,10 @@ function importDailyFromEmail() {
   sheet.clearContents();
   sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 
-  // Serve the fresh data immediately.
-  try { CacheService.getScriptCache().remove('dashboard_data'); } catch (e) {}
+  // Serve the fresh data immediately, then pre-warm the cache so the first
+  // user after the morning import doesn't wait for a cold rebuild.
+  try { clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data'); } catch (e) {}
+  try { getDashboardData(); } catch (e) {}
 
   Logger.log('Imported ' + newRows + ' rows (email dated ' + latestMsg.getDate() + ').');
   return { ok: true, rows: newRows, emailDate: latestMsg.getDate() };
@@ -300,15 +302,54 @@ function installDailyImportTrigger() {
 // =============================================================================
 function getDashboardData() {
   const cache = CacheService.getScriptCache();
-  const cached = cache.get('dashboard_data');
+  const cached = readChunkedCache_(cache, 'dashboard_data');
   if (cached) {
     try { return JSON.parse(cached); } catch (e) {}
   }
   const data = buildDashboardPayload();
   try {
-    cache.put('dashboard_data', JSON.stringify(data), CACHE_SECONDS);
+    writeChunkedCache_(cache, 'dashboard_data', JSON.stringify(data), CACHE_SECONDS);
   } catch (e) {}
   return data;
+}
+
+// === Chunked cache ===
+// CacheService caps each item at ~100KB, so the (large) dashboard payload could
+// never be cached as one value — which meant it was rebuilt on EVERY request
+// (slow logins). Split it across several <100KB chunks so caching actually works.
+const CACHE_CHUNK = 90000;
+
+function writeChunkedCache_(cache, key, str, ttl) {
+  const n = Math.ceil(str.length / CACHE_CHUNK);
+  const parts = {};
+  for (let i = 0; i < n; i++) {
+    parts[key + '_' + i] = str.substring(i * CACHE_CHUNK, (i + 1) * CACHE_CHUNK);
+  }
+  cache.putAll(parts, ttl);
+  cache.put(key + '_n', String(n), ttl);
+}
+
+function readChunkedCache_(cache, key) {
+  const meta = cache.get(key + '_n');
+  const n = Number(meta);
+  if (!n) return null;
+  const keys = [];
+  for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+  const got = cache.getAll(keys);
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const part = got[key + '_' + i];
+    if (part == null) return null; // any missing chunk → treat as a cache miss
+    out += part;
+  }
+  return out;
+}
+
+function clearChunkedCache_(cache, key) {
+  const n = Number(cache.get(key + '_n')) || 0;
+  const keys = [key + '_n'];
+  for (let i = 0; i < n + 50; i++) keys.push(key + '_' + i); // +50 to clear stale extras
+  cache.removeAll(keys);
 }
 
 function buildDashboardPayload() {
@@ -1019,7 +1060,7 @@ function readSheet(ss, name) {
 // ADMIN UTILITIES — run from Apps Script editor
 // =============================================================================
 function clearCache() {
-  CacheService.getScriptCache().remove('dashboard_data');
+  clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data');
   Logger.log('Cache cleared');
 }
 
