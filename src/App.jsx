@@ -1826,6 +1826,7 @@ function Dashboard({ user, raw, onLogout }) {
                 let srs = [];
                 if (SHARED[c]) srs = SHARED[c].map(r => r.sr);
                 else if (custByCode[c] && custByCode[c].sr) srs = [custByCode[c].sr];
+                srs = srs.filter((v, i) => srs.indexOf(v) === i); // once per SR
                 srs.forEach(sr => {
                   const cu = cmByCode[c] || { c: c, n: (custByCode[c] && custByCode[c].n) || ("Customer " + c), p: {} };
                   (bySR[sr] = bySR[sr] || []).push(cu);
