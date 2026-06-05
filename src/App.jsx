@@ -1813,10 +1813,23 @@ function Dashboard({ user, raw, onLogout }) {
               const periods = [];
               { let y = 2025, mm = 1; while (y * 100 + mm <= maxP) { periods.push(y * 100 + mm); mm++; if (mm > 12) { mm = 1; y++; } } }
               const pLabel = (p) => MONTH_NAMES[(p % 100) - 1] + "-" + String(Math.floor(p / 100)).slice(2);
+              // Group the SAME active customers the matrix counts, using the SAME
+              // attribution (shared customers → each of their SRs), so the per-SR
+              // counts here exactly match the Active matrix's Actual.
+              const cmByCode = {};
+              (RAW.customerMonthly || []).forEach(cu => { cmByCode[cu.c] = cu; });
+              const custByCode = {};
+              (RAW.customers || []).forEach(c => { custByCode[c.c] = c; });
+              const SHARED = RAW.sharedCustomers || {};
               const bySR = {};
-              (RAW.customerMonthly || []).forEach(cu => {
-                if (cu.sr == null) return;
-                (bySR[cu.sr] = bySR[cu.sr] || []).push(cu);
+              (am.customers || []).forEach(c => {
+                let srs = [];
+                if (SHARED[c]) srs = SHARED[c].map(r => r.sr);
+                else if (custByCode[c] && custByCode[c].sr) srs = [custByCode[c].sr];
+                srs.forEach(sr => {
+                  const cu = cmByCode[c] || { c: c, n: (custByCode[c] && custByCode[c].n) || ("Customer " + c), p: {} };
+                  (bySR[sr] = bySR[sr] || []).push(cu);
+                });
               });
               const srList = RAW.srs.filter(s =>
                 (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
@@ -1861,7 +1874,7 @@ function Dashboard({ user, raw, onLogout }) {
                                 <td style={{...stCorner, ...tdStyle, background:"#fafbfc"}}>
                                   <span style={{color:"#6b7280", marginRight:6}}>{open ? "▾" : "▸"}</span>
                                   {s.name}
-                                  <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{custs.length} cust · {s.flm}</span>
+                                  <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{custs.length} active · {s.flm}</span>
                                 </td>
                                 {periods.map(p => {
                                   const cnt = custs.reduce((a, cu) => a + ((cu.p[p] || 0) > 0 ? 1 : 0), 0);
@@ -1888,7 +1901,7 @@ function Dashboard({ user, raw, onLogout }) {
                     </table>
                   </div>
                   <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
-                    The SR row shows how many of its customers bought each month; expand an SR to see each customer's 1/0 trend (1 = purchased, 0 = no purchase or return). Respects FLM / SR filters.
+                    Shows the SAME active customers as the Active matrix (3-mo window, shared customers counted under each of their SRs) — so the "active" count per SR matches the matrix Actual. Expand an SR for each customer's 1/0 monthly trend (1 = purchased, 0 = no purchase or return).
                   </div>
                 </Panel>
               );
