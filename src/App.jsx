@@ -1699,8 +1699,8 @@ function Dashboard({ user, raw, onLogout }) {
                               {f.srs.length} SRs
                             </span>
                           </td>
-                          <td style={tdStyleR}>{f.target}</td>
-                          <td style={tdStyleR}>{f.actual}</td>
+                          <td style={tdStyleR}>{fmt(f.target)}</td>
+                          <td style={tdStyleR}>{fmt(f.actual)}</td>
                           <td style={{...tdStyleR, color:pctColor(p), fontWeight:700}}>
                             {f.target > 0 ? p.toFixed(0) + "%" : "—"}
                           </td>
@@ -1717,8 +1717,8 @@ function Dashboard({ user, raw, onLogout }) {
                                 <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginRight:6}}>{s.code}</span>
                                 {s.name}
                               </td>
-                              <td style={tdStyleR}>{tt}</td>
-                              <td style={tdStyleR}>{aa}</td>
+                              <td style={tdStyleR}>{fmt(tt)}</td>
+                              <td style={tdStyleR}>{fmt(aa)}</td>
                               <td style={{...tdStyleR, color:pctColor(sp), fontWeight:600}}>
                                 {tt > 0 ? sp.toFixed(0) + "%" : "—"}
                               </td>
@@ -1733,15 +1733,15 @@ function Dashboard({ user, raw, onLogout }) {
                     <tr style={{borderTop:"1px solid #f3f4f6", color:"#9ca3af", fontStyle:"italic"}}>
                       <td style={tdStyle}>Unassigned (no FLM)</td>
                       <td style={tdStyleR}>—</td>
-                      <td style={tdStyleR}>{unassigned}</td>
+                      <td style={tdStyleR}>{fmt(unassigned)}</td>
                       <td style={tdStyleR}>—</td>
                       <td style={tdStyle}>—</td>
                     </tr>
                   )}
                   <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
                     <td style={tdStyle}>TOTAL</td>
-                    <td style={tdStyleR}>{totT}</td>
-                    <td style={tdStyleR}>{totA + (flm === "All" ? unassigned : 0)}</td>
+                    <td style={tdStyleR}>{fmt(totT)}</td>
+                    <td style={tdStyleR}>{fmt(totA + (flm === "All" ? unassigned : 0))}</td>
                     <td style={{...tdStyleR, color:pctColor(pct(totA + (flm === "All" ? unassigned : 0), totT))}}>
                       {pct(totA + (flm === "All" ? unassigned : 0), totT).toFixed(0)}%
                     </td>
@@ -1982,8 +1982,8 @@ function Dashboard({ user, raw, onLogout }) {
                             </span>
                             {f.flm}
                           </td>
-                          <td style={tdStyleR}>{f.target}</td>
-                          <td style={tdStyleR}>{f.actual}</td>
+                          <td style={tdStyleR}>{fmt(f.target)}</td>
+                          <td style={tdStyleR}>{fmt(f.actual)}</td>
                           <td style={{...tdStyleR, color:pctColor(p), fontWeight:700}}>
                             {f.target > 0 ? p.toFixed(0) + "%" : "—"}
                           </td>
@@ -2000,8 +2000,8 @@ function Dashboard({ user, raw, onLogout }) {
                                 <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginRight:6}}>{s.code}</span>
                                 {s.name}
                               </td>
-                              <td style={tdStyleR}>{tt}</td>
-                              <td style={tdStyleR}>{aa}</td>
+                              <td style={tdStyleR}>{fmt(tt)}</td>
+                              <td style={tdStyleR}>{fmt(aa)}</td>
                               <td style={{...tdStyleR, color:pctColor(sp), fontWeight:600}}>
                                 {tt > 0 ? sp.toFixed(0) + "%" : "—"}
                               </td>
