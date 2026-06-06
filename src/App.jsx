@@ -751,27 +751,31 @@ function Dashboard({ user, raw, onLogout }) {
 
           <Panel title="FLM × KPI Matrix — with MND / PND (click ▸ to expand SR detail)"
             action={<ExportBtn onClick={() => {
-              // YTD export: one column per month Jan → latest, plus YTD totals.
+              // YTD by SR → Customer: one column per month Jan → latest + YTD total.
               const latest = latestDataMonth(RAW);
               const months = []; for (let m = 1; m <= latest; m++) months.push(m);
-              const aByM = {}, tByM = {};
-              (RAW.actuals || []).forEach(r => { if (r.m > latest) return; (aByM[r.sr] = aByM[r.sr] || {})[r.m] = (aByM[r.sr][r.m] || 0) + r.v; });
-              (RAW.targets || []).forEach(r => { if (r.m > latest) return; (tByM[r.sr] = tByM[r.sr] || {})[r.m] = (tByM[r.sr][r.m] || 0) + r.t; });
-              const rows = [];
-              C.flmRollup.forEach(f => f.srs.forEach(sr => {
-                const o = { "FLM": f.flm, "SR Code": sr.code, "SR Name": sr.name };
-                let ytdA = 0, ytdT = 0;
-                months.forEach(m => {
-                  const a = (aByM[sr.code] && aByM[sr.code][m]) || 0;
-                  o[MONTH_NAMES[m - 1] + "-" + String(year).slice(2)] = Math.round(a);
-                  ytdA += a; ytdT += (tByM[sr.code] && tByM[sr.code][m]) || 0;
-                });
-                o["YTD Actual"] = Math.round(ytdA);
-                o["YTD Target"] = Math.round(ytdT);
-                o["YTD %"] = ytdT > 0 ? ((ytdA / ytdT) * 100).toFixed(0) + "%" : "—";
-                rows.push(o);
+              const custName = {}; (RAW.customers || []).forEach(c => { custName[c.c] = c.n; });
+              const srName = {}, srFlm = {}; RAW.srs.forEach(s => { srName[s.code] = s.name; srFlm[s.code] = s.flm; });
+              const data = {};
+              months.forEach(m => (RAW.kpiCustByMonth[m] || []).forEach(r => {
+                const key = r.sr + "|" + r.c;
+                (data[key] = data[key] || {})[m] = (data[key][m] || 0) + r.v;
               }));
-              exportToExcel(rows, `Sales_YTD_Jan-${MONTH_NAMES[latest-1]}-${year}.xlsx`, "Sales YTD");
+              const list = Object.keys(data).map(key => {
+                const parts = key.split("|"); const sr = Number(parts[0]), c = Number(parts[1]);
+                const vals = data[key]; let ytd = 0; months.forEach(m => { ytd += (vals[m] || 0); });
+                return { sr, c, flm: srFlm[sr] || "—", srNm: srName[sr] || ("SR " + sr), vals, ytd };
+              })
+                .filter(r => flm === "All" || r.flm === flm)
+                .filter(r => srFilter === "All" || r.sr === Number(srFilter))
+                .sort((a, b) => (a.sr - b.sr) || (b.ytd - a.ytd));
+              const out = list.map(r => {
+                const o = { "FLM": r.flm, "SR Code": r.sr, "SR Name": r.srNm, "Customer Code": r.c, "Customer Name": custName[r.c] || "" };
+                months.forEach(m => { o[MONTH_NAMES[m - 1] + "-" + String(year).slice(2)] = Math.round(r.vals[m] || 0); });
+                o["YTD Total"] = Math.round(r.ytd);
+                return o;
+              });
+              exportToExcel(out, `Sales_byCustomer_YTD_Jan-${MONTH_NAMES[latest-1]}-${year}.xlsx`, "Sales by Customer");
             }} />}>
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
