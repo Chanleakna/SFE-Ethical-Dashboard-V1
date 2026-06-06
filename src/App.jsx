@@ -657,9 +657,9 @@ function Dashboard({ user, raw, onLogout }) {
               cursor: user.role === "FLM" ? "not-allowed" : "pointer",
               color: user.role === "FLM" ? "#6b7280" : "#111827",
             }}>
-            {user.role === "Admin" && <option>All</option>}
+            {user.role !== "FLM" && <option>All</option>}
             {RAW.flms
-              .filter(f => user.role === "Admin" || f === user.flm)
+              .filter(f => user.role !== "FLM" || f === user.flm)
               .map(f => <option key={f}>{f}</option>)}
           </select>
         </FilterField>
