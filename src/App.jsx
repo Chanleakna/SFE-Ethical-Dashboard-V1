@@ -113,6 +113,39 @@ const latestDataMonth = (raw) => {
   if (!months.length) return fallback;
   return Math.max.apply(null, months);
 };
+const uniqArr = (a) => a.filter((v, i) => a.indexOf(v) === i);
+// Build a "by SR → Customer, one column per month Jan→latest + YTD Total" export.
+// recordsByMonth(m) returns an array of { sr, c, cn?, v }; values are summed per (sr, c, month).
+function ytdCustomerExport(raw, year, flm, srFilter, recordsByMonth, filename, sheet) {
+  const latest = latestDataMonth(raw);
+  const months = []; for (let m = 1; m <= latest; m++) months.push(m);
+  const srName = {}, srFlm = {};
+  (raw.srs || []).forEach(s => { srName[s.code] = s.name; srFlm[s.code] = s.flm; });
+  const custName = {}; (raw.customers || []).forEach(c => { custName[c.c] = c.n; });
+  const data = {};
+  months.forEach(m => (recordsByMonth(m) || []).forEach(r => {
+    if (r.c == null || r.sr == null) return;
+    const key = r.sr + "|" + r.c;
+    if (!data[key]) data[key] = { cn: r.cn, vals: {} };
+    if (r.cn && !data[key].cn) data[key].cn = r.cn;
+    data[key].vals[m] = (data[key].vals[m] || 0) + (r.v || 0);
+  }));
+  const list = Object.keys(data).map(key => {
+    const parts = key.split("|"); const sr = Number(parts[0]), c = Number(parts[1]);
+    let ytd = 0; months.forEach(m => { ytd += (data[key].vals[m] || 0); });
+    return { sr, c, cn: data[key].cn || custName[c] || "", flm: srFlm[sr] || "—", srNm: srName[sr] || ("SR " + sr), vals: data[key].vals, ytd };
+  })
+    .filter(r => flm === "All" || r.flm === flm)
+    .filter(r => srFilter === "All" || r.sr === Number(srFilter))
+    .sort((a, b) => (a.sr - b.sr) || (b.ytd - a.ytd));
+  const out = list.map(r => {
+    const o = { "FLM": r.flm, "SR Code": r.sr, "SR Name": r.srNm, "Customer Code": r.c, "Customer Name": r.cn };
+    months.forEach(m => { o[MONTH_NAMES[m - 1] + "-" + String(year).slice(2)] = Math.round(r.vals[m] || 0); });
+    o["YTD Total"] = Math.round(r.ytd);
+    return o;
+  });
+  exportToExcel(out, filename + "_Jan-" + MONTH_NAMES[latest - 1] + "-" + year + ".xlsx", sheet);
+}
 const pctColor = (p) => {
   if (p >= 100) return "#059669";
   if (p >= 80)  return "#d97706";
@@ -1509,23 +1542,9 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
 
             <Panel title="Shop Around — FLM Matrix (expand to see SRs and customers)"
-              action={<ExportBtn onClick={() => {
-                const rows = items.map(x => {
-                  const sr = RAW.srs.find(s => s.code === x.sr);
-                  return {
-                    "FLM": x.f || "—",
-                    "SR Code": x.sr,
-                    "SR Name": sr ? sr.name : "—",
-                    "Customer Code": x.c || "(new prospect)",
-                    "Customer Name": x.cn || "—",
-                    "Target": Math.round(x.t),
-                    "Actual": Math.round(x.v),
-                    "Variance": Math.round(x.v - x.t),
-                    "% Achievement": x.t > 0 ? ((x.v/x.t)*100).toFixed(1) + "%" : "—",
-                  };
-                });
-                exportToExcel(rows, `ShopAround_${MONTH_NAMES[month-1]}${year}.xlsx`, "Shop Around");
-              }} />}>
+              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flm, srFilter,
+                m => (RAW.shopByMonth[m] || []).filter(x => !x.isNew).map(x => ({ sr: x.sr, c: x.c, cn: x.cn, v: x.v })),
+                "ShopAround_byCustomer", "Shop Around YTD")} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
                   <th style={thStyle}>FLM / SR / Customer</th>
@@ -1755,23 +1774,16 @@ function Dashboard({ user, raw, onLogout }) {
 
             <Panel title={"Active Customer List (" + (am.customers || []).length + " customers active in 3-mo window)"}
               action={<ExportBtn onClick={() => {
-                const rows = (am.customers || [])
-                  .map(cc => {
-                    const cust = RAW.customers.find(x => x.c === cc);
-                    const sr = cust && cust.sr ? RAW.srs.find(s => s.code === cust.sr) : null;
-                    return { c: cc, n: cust?.n, f: cust?.f, sr };
-                  })
-                  .filter(c => flm === "All" || c.f === flm)
-                  .filter(c => srFilter === "All" || (c.sr && c.sr.code === Number(srFilter)))
-                  .filter(c => custFilter === "All" || c.c === Number(custFilter))
-                  .map(c => ({
-                    "FLM": c.f || "Unassigned",
-                    "SR Code": c.sr ? c.sr.code : "—",
-                    "SR Name": c.sr ? c.sr.name : "—",
-                    "Customer Code": c.c,
-                    "Customer Name": c.n || "—",
-                  }));
-                exportToExcel(rows, `ActiveCustomers_${MONTH_NAMES[month-1]}${year}.xlsx`, "Active Customers");
+                const SHARED = RAW.sharedCustomers || {};
+                const custSr = {}; (RAW.customers || []).forEach(c => { custSr[c.c] = c.sr; });
+                ytdCustomerExport(RAW, year, flm, srFilter, m => {
+                  const recs = [];
+                  ((RAW.activeByMonth[m] || {}).customers || []).forEach(c => {
+                    let srs = SHARED[c] ? SHARED[c].map(r => r.sr) : (custSr[c] ? [custSr[c]] : []);
+                    uniqArr(srs).forEach(sr => recs.push({ sr, c, v: 1 }));
+                  });
+                  return recs;
+                }, "ActiveCustomers_byCustomer", "Active YTD");
               }} />}>
               <div style={{maxHeight:380, overflowY:"auto"}}>
                 <table style={tblStyle}>
@@ -2019,20 +2031,15 @@ function Dashboard({ user, raw, onLogout }) {
             </Panel>
 
             <Panel title={"New Listing items (" + items.length + ")"}
-              action={<ExportBtn onClick={() => {
-                const rows = items.map(p => {
-                  const sr = p.sr ? RAW.srs.find(s => s.code === p.sr) : null;
-                  return {
-                    "FLM": p.f || "Unassigned",
-                    "SR Code": p.sr || "—",
-                    "SR Name": sr ? sr.name : "—",
-                    "Customer Code": p.c,
-                    "Customer Name": p.n || "Cust " + p.c,
-                    "KPI": p.k,
-                  };
+              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flm, srFilter, m => {
+                const its = (RAW.newByMonth[m] || {}).items || [];
+                const recs = [];
+                its.forEach(p => {
+                  const srs = uniqArr(p.srs && p.srs.length ? p.srs : (p.sr ? [p.sr] : []));
+                  srs.forEach(sr => recs.push({ sr, c: p.c, cn: p.n, v: 1 }));
                 });
-                exportToExcel(rows, `NewListing_${MONTH_NAMES[month-1]}${year}.xlsx`, "New Listing");
-              }} />}>
+                return recs;
+              }, "NewListing_byCustomer", "New Listing YTD")} />}>
               <div style={{maxHeight:380, overflowY:"auto"}}>
                 <table style={tblStyle}>
                   <thead style={{position:"sticky", top:0, background:"#f9fafb", zIndex:1}}>
@@ -2088,23 +2095,23 @@ function Dashboard({ user, raw, onLogout }) {
             </div>
             <Panel title="NU — FLM × SR (expandable)"
               action={<ExportBtn onClick={() => {
-                const rows = [];
-                (flm === "All" ? RAW.flms : [flm]).forEach(f => {
-                  RAW.srs.filter(s => s.flm === f).forEach(s => {
-                    const t = leadTM.bySr[s.code] || 0;
-                    const a = leadAM.bySr[s.code] || 0;
-                    if (t === 0 && a === 0) return;
-                    rows.push({
-                      "FLM": f,
-                      "SR Code": s.code,
-                      "SR Name": s.name,
-                      "NU Target": t,
-                      "NU Actual": a,
-                      "% Achievement": t > 0 ? ((a/t)*100).toFixed(0) + "%" : "—",
-                    });
+                const latest = latestDataMonth(RAW);
+                const months = []; for (let m = 1; m <= latest; m++) months.push(m);
+                const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+                const out = srs.map(s => {
+                  const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
+                  let ytdA = 0, ytdT = 0;
+                  months.forEach(m => {
+                    const am = (RAW.leadActualByMonth && RAW.leadActualByMonth[m]) ? (RAW.leadActualByMonth[m].bySr[s.code] || 0) : 0;
+                    const tm = (RAW.leadTargetByMonth && RAW.leadTargetByMonth[m]) ? (RAW.leadTargetByMonth[m].bySr[s.code] || 0) : 0;
+                    o[MONTH_NAMES[m - 1] + "-" + String(year).slice(2)] = Math.round(am);
+                    ytdA += am; ytdT += tm;
                   });
-                });
-                exportToExcel(rows, `NU_${MONTH_NAMES[month-1]}${year}.xlsx`, "NU");
+                  o["YTD Actual"] = Math.round(ytdA); o["YTD Target"] = Math.round(ytdT);
+                  o["YTD %"] = ytdT > 0 ? ((ytdA / ytdT) * 100).toFixed(0) + "%" : "—";
+                  return o;
+                }).filter(o => o["YTD Actual"] !== 0 || o["YTD Target"] !== 0);
+                exportToExcel(out, `NU_YTD_Jan-${MONTH_NAMES[latest-1]}-${year}.xlsx`, "NU YTD");
               }} />}>
               <table style={tblStyle}>
                 <thead><tr style={{background:"#f9fafb"}}>
