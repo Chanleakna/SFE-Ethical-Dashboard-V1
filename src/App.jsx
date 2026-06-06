@@ -751,29 +751,27 @@ function Dashboard({ user, raw, onLogout }) {
 
           <Panel title="FLM × KPI Matrix — with MND / PND (click ▸ to expand SR detail)"
             action={<ExportBtn onClick={() => {
+              // YTD export: one column per month Jan → latest, plus YTD totals.
+              const latest = latestDataMonth(RAW);
+              const months = []; for (let m = 1; m <= latest; m++) months.push(m);
+              const aByM = {}, tByM = {};
+              (RAW.actuals || []).forEach(r => { if (r.m > latest) return; (aByM[r.sr] = aByM[r.sr] || {})[r.m] = (aByM[r.sr][r.m] || 0) + r.v; });
+              (RAW.targets || []).forEach(r => { if (r.m > latest) return; (tByM[r.sr] = tByM[r.sr] || {})[r.m] = (tByM[r.sr][r.m] || 0) + r.t; });
               const rows = [];
-              C.flmRollup.forEach(f => {
-                f.srs.forEach(sr => {
-                  const card = C.srScorecards.find(c => c.code === sr.code);
-                  if (!card) return;
-                  rows.push({
-                    "FLM": f.flm,
-                    "SR Code": sr.code,
-                    "SR Name": sr.name,
-                    "Total Target": Math.round(card.totalT),
-                    "Total Actual": Math.round(card.totalA),
-                    "Variance": Math.round(card.totalA - card.totalT),
-                    "% Achievement": card.totalT > 0 ? card.totalPct.toFixed(1) + "%" : "—",
-                    "MND Target": Math.round(card.mndT),
-                    "MND Actual": Math.round(card.mndA),
-                    "MND %": card.mndT > 0 ? ((card.mndA/card.mndT)*100).toFixed(0) + "%" : "—",
-                    "PND Target": Math.round(card.pndT),
-                    "PND Actual": Math.round(card.pndA),
-                    "PND %": card.pndT > 0 ? ((card.pndA/card.pndT)*100).toFixed(0) + "%" : "—",
-                  });
+              C.flmRollup.forEach(f => f.srs.forEach(sr => {
+                const o = { "FLM": f.flm, "SR Code": sr.code, "SR Name": sr.name };
+                let ytdA = 0, ytdT = 0;
+                months.forEach(m => {
+                  const a = (aByM[sr.code] && aByM[sr.code][m]) || 0;
+                  o[MONTH_NAMES[m - 1] + "-" + String(year).slice(2)] = Math.round(a);
+                  ytdA += a; ytdT += (tByM[sr.code] && tByM[sr.code][m]) || 0;
                 });
-              });
-              exportToExcel(rows, `Summary_${MONTH_NAMES[month-1]}${year}.xlsx`, "Summary");
+                o["YTD Actual"] = Math.round(ytdA);
+                o["YTD Target"] = Math.round(ytdT);
+                o["YTD %"] = ytdT > 0 ? ((ytdA / ytdT) * 100).toFixed(0) + "%" : "—";
+                rows.push(o);
+              }));
+              exportToExcel(rows, `Sales_YTD_Jan-${MONTH_NAMES[latest-1]}-${year}.xlsx`, "Sales YTD");
             }} />}>
             <div style={{overflowX:"auto"}}>
               <table style={tblStyle}>
