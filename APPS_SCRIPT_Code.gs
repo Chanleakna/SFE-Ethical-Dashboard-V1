@@ -767,35 +767,34 @@ function buildDashboardPayload() {
   // =========================================================================
   // === NEW LISTING — Name-based matching (case-insensitive) ===
   // =========================================================================
-  // Build name -> set of periods (from Ethical rows only)
-  const nameEthicalPeriods = {};
-  const nameToRepCode = {};
-  
+  // Build entity -> set of periods (from Ethical rows only).
+  // Customer Code is the primary key, so the same customer counts as ONE entity
+  // even when the Customer Name text varies across rows. Fall back to name only
+  // for placeholder/no-code rows (281000000) so genuine new prospects still work.
+  const entityPeriods = {};   // key -> { periods:{}, code:number|null, name:string|null }
+
   daily.forEach(r => {
     // === FIX: case-insensitive Ethical filter ===
     if (!isEthical(r['Dep'])) return;
     const nm = normName(r['Customer Name']);
-    if (!nm) return;
     const sc = String(r['Short Cut'] || '').trim();
     const mn = mapMonth(sc);
     if (!mn) return;
     const yr = Number(r['Year']) || 0;
     if (!yr) return;
     const p = yr * 100 + mn;
-    
-    if (!nameEthicalPeriods[nm]) nameEthicalPeriods[nm] = {};
-    nameEthicalPeriods[nm][p] = true;
-    
+
     const c = Number(r['Customer Code']);
-    if (c && c !== 281000000) {
-      if (yr === 2026) {
-        nameToRepCode[nm] = c;
-      } else if (!nameToRepCode[nm]) {
-        nameToRepCode[nm] = c;
-      }
-    }
+    const hasRealCode = c && c !== 281000000;
+    const key = hasRealCode ? ('C:' + c) : (nm ? ('N:' + nm) : null);
+    if (!key) return;
+
+    if (!entityPeriods[key]) entityPeriods[key] = { periods: {}, code: hasRealCode ? c : null, name: nm || null };
+    entityPeriods[key].periods[p] = true;
+    if (hasRealCode) entityPeriods[key].code = c;
+    if (nm) entityPeriods[key].name = nm;
   });
-  Logger.log('nameEthicalPeriods map size: ' + Object.keys(nameEthicalPeriods).length);
+  Logger.log('entityPeriods map size: ' + Object.keys(entityPeriods).length);
 
   const newByMonth = {};
   MONTHS.forEach(m => {
@@ -811,19 +810,20 @@ function buildDashboardPayload() {
     const items = [];
     const flmCount = {}, srCount = {};
 
-    Object.keys(nameEthicalPeriods).forEach(nm => {
-      const purchases = nameEthicalPeriods[nm];
+    Object.keys(entityPeriods).forEach(key => {
+      const ent = entityPeriods[key];
+      const purchases = ent.periods;
 
       if (!purchases[targetPeriod]) return;
-      
+
       let hasPrior = false;
       for (const pStr in priorPeriods) {
         if (purchases[Number(pStr)]) { hasPrior = true; break; }
       }
       if (hasPrior) return;
 
-      const repCode = nameToRepCode[nm];
-      
+      const repCode = ent.code;
+
       let srs = [];
       if (repCode && SHARED[repCode] && SHARED[repCode].length > 0) {
         const seen = {};
@@ -853,7 +853,7 @@ function buildDashboardPayload() {
 
       items.push({
         c: repCode || null,
-        n: (repCode && custDict[repCode] && custDict[repCode].name) || nm,
+        n: (repCode && custDict[repCode] && custDict[repCode].name) || ent.name,
         f: srs[0] ? srToFlm[srs[0]] : null,
         sr: srs[0] || null,
         srs: srs,
