@@ -606,7 +606,53 @@ function buildDashboardPayload() {
     });
   });
 
-  // Per-period, per-customer sales maps (built in a single pass):
+  // =========================================================================
+  // === TOTAL ETHICAL SALES per month × SR (the headline "Sales" figure) ===
+  // The Sales number must equal the Daily Sales sheet's Ethical total EXACTLY,
+  // so — unlike the per-product KPIs — it does NOT filter by tracked material /
+  // sub-brand and does NOT drop unmatched-SR rows. Every Ethical 2026 row is
+  // counted once. Sales are attributed to SR (shared customers split by category
+  // weight, else the row's SR, else the customer's mapped SR); anything still
+  // unattributable lands in the 'Unassigned' bucket (sr code 0) so bySr always
+  // sums to total and the grand total ties out to the sheet.
+  // =========================================================================
+  const salesByMonth = {};
+  MONTHS.forEach(m => { salesByMonth[m] = { bySr: {}, byFlm: {}, total: 0 }; });
+  daily.forEach(r => {
+    if (!isEthical(r['Dep'])) return;
+    const monthNum = mapMonth(r['Short Cut']);
+    if (!monthNum) return;
+    if (Number(r['Year']) !== 2026) return;
+    const sales = Number(r['Total Act. Sales']) || 0;
+    if (!sales) return;
+    const cust = Number(r['Customer Code']);
+    const mat = matMap[Number(r['Material Code'])];
+    const cat = mat ? mat.cat : null;
+    const bucket = salesByMonth[monthNum];
+    bucket.total += sales;
+
+    const addToSr = (sr, amt) => {
+      bucket.bySr[sr] = (bucket.bySr[sr] || 0) + amt;
+      const f = sr ? (srToFlm[sr] || 'Unassigned') : 'Unassigned';
+      bucket.byFlm[f] = (bucket.byFlm[f] || 0) + amt;
+    };
+
+    let done = false;
+    if (SHARED[cust] && cat) {
+      const matching = SHARED[cust].filter(rule => rule.cat === cat);
+      if (matching.length > 0) {
+        matching.forEach(rule => addToSr(rule.sr, sales * rule.w));
+        done = true;
+      }
+    }
+    if (!done) {
+      const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+      const sr = srMatch[srFirst] || (custDict[cust] && custDict[cust].sr) || 0;
+      addToSr(sr, sales);
+    }
+  });
+
+
   //  - dailyByPeriodCust: ETHICAL only — used by Active 3-mo.
   //  - shopByPeriodCust:  ALL departments — used by Shop Around. EXCEPTION:
   //    shop-around customers usually book their purchases under TRADE (not
@@ -1018,6 +1064,7 @@ function buildDashboardPayload() {
     flms: ['Chay Mengkong','In Lena','Sem Sokhom','Thong Kanha','Um Phana'],
     srs: srMaster, customers: customers,
     targets: allTargets, actuals: actuals,
+    salesByMonth: salesByMonth,
     months: MONTHS,
     customerMonthly: Object.keys(custMonthly).map(k => custMonthly[k]),
     customerMonthlyMaxPeriod: maxPeriod,
