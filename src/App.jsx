@@ -8,8 +8,10 @@ import {
 // Replace with your Apps Script Web App URL (ends in /exec)
 const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5Dwaq1E-0cgOrn7CKIcRW8PMJuzywqH5WQIXWfQ7JKXiei/exec";
 
-// Refresh interval for live data (seconds)
-const REFRESH_INTERVAL = 60;
+// Refresh interval for live data (seconds). Daily-sales data doesn't change by
+// the minute; a longer cadence keeps it live while reducing load on the slow
+// sheet and the chance of catching a mid-rebuild partial read.
+const REFRESH_INTERVAL = 300;
 // localStorage key for the last-good payload (instant open while refetching)
 const CACHE_KEY = "sfe_dashboard_payload_v1";
 
@@ -177,6 +179,8 @@ export default function App() {
 
   // Fetch data after login
   const hasDataRef = useRef(false);
+  const lastMagRef = useRef(null);   // magnitude (total actuals) of last accepted payload
+  const lowStreakRef = useRef(0);    // consecutive suspiciously-low reads
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -186,6 +190,17 @@ export default function App() {
     // can't poison the view with empty (very low) numbers.
     const isComplete = (d) => d && !d.error && Array.isArray(d.srs) && d.srs.length > 0
       && Array.isArray(d.actuals) && Array.isArray(d.targets);
+    // Total actuals — a stable magnitude used to spot mid-rebuild partial reads.
+    const magnitude = (d) => (d.actuals || []).reduce((s, r) => s + (r.v || 0), 0);
+
+    const accept = (data) => {
+      setRaw(data);
+      hasDataRef.current = true;
+      lastMagRef.current = magnitude(data);
+      lowStreakRef.current = 0;
+      setError(null);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) { /* quota — skip */ }
+    };
 
     // Instant open: render the last-good payload from cache while we refetch in
     // the background. The Apps Script call recomputes the whole sheet and can be
@@ -194,7 +209,7 @@ export default function App() {
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const data = JSON.parse(cached);
-        if (isComplete(data)) { setRaw(data); hasDataRef.current = true; }
+        if (isComplete(data)) { setRaw(data); hasDataRef.current = true; lastMagRef.current = magnitude(data); }
       }
     } catch (e) { /* ignore corrupt / oversized cache */ }
 
@@ -206,16 +221,22 @@ export default function App() {
         const data = await res.json();
         if (cancelled) return;
         setLoading(false);
-        if (isComplete(data)) {
-          setRaw(data);
-          hasDataRef.current = true;
-          setError(null);
-          try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) { /* quota — skip */ }
-        } else if (!hasDataRef.current) {
+        if (!isComplete(data)) {
           // Nothing good to show yet — surface why instead of rendering empties.
-          setError((data && data.error) || "Data looks incomplete — the Apps Script may still be deploying or returned partial data. Refresh in a moment.");
+          if (!hasDataRef.current) setError((data && data.error) || "Data looks incomplete — the Apps Script may still be deploying or returned partial data. Refresh in a moment.");
+          return;
         }
-        // else: keep showing the last good data; ignore this bad refresh.
+        const prev = lastMagRef.current;
+        const mag = magnitude(data);
+        // Guard against a mid-rebuild partial read: a sudden >50% collapse vs the
+        // last good total is almost certainly the source sheet being rewritten,
+        // not a real change. Keep showing the last good data. If it stays low for
+        // 3 reads in a row, accept it (genuine corrections still get through).
+        if (prev != null && prev > 0 && mag < prev * 0.5) {
+          lowStreakRef.current += 1;
+          if (lowStreakRef.current < 3) return; // ignore this suspicious read
+        }
+        accept(data);
       } catch (err) {
         if (cancelled) return;
         setLoading(false);
