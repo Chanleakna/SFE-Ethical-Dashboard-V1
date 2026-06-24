@@ -181,6 +181,12 @@ export default function App() {
     if (!user) return;
     let cancelled = false;
 
+    // A complete payload must carry the core arrays. We only ever render / cache
+    // data that passes this check, so a slow or half-built Apps Script response
+    // can't poison the view with empty (very low) numbers.
+    const isComplete = (d) => d && !d.error && Array.isArray(d.srs) && d.srs.length > 0
+      && Array.isArray(d.actuals) && Array.isArray(d.targets);
+
     // Instant open: render the last-good payload from cache while we refetch in
     // the background. The Apps Script call recomputes the whole sheet and can be
     // slow, so this keeps the dashboard from blocking on a blank loading screen.
@@ -188,7 +194,7 @@ export default function App() {
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const data = JSON.parse(cached);
-        if (data && !data.error) { setRaw(data); hasDataRef.current = true; }
+        if (isComplete(data)) { setRaw(data); hasDataRef.current = true; }
       }
     } catch (e) { /* ignore corrupt / oversized cache */ }
 
@@ -200,14 +206,16 @@ export default function App() {
         const data = await res.json();
         if (cancelled) return;
         setLoading(false);
-        if (data && data.error) {
-          if (!hasDataRef.current) setError(data.error);
-        } else {
+        if (isComplete(data)) {
           setRaw(data);
           hasDataRef.current = true;
           setError(null);
           try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) { /* quota — skip */ }
+        } else if (!hasDataRef.current) {
+          // Nothing good to show yet — surface why instead of rendering empties.
+          setError((data && data.error) || "Data looks incomplete — the Apps Script may still be deploying or returned partial data. Refresh in a moment.");
         }
+        // else: keep showing the last good data; ignore this bad refresh.
       } catch (err) {
         if (cancelled) return;
         setLoading(false);
@@ -528,19 +536,6 @@ function Dashboard({ user, raw, onLogout }) {
     const totalTarget = kpiTotals.reduce((s, k) => s + k.target, 0);
     const totalActual = kpiTotals.reduce((s, k) => s + k.actual, 0);
 
-    // === Headline "Sales" = full Ethical sheet total (all materials, all rows) ===
-    // Unlike totalActual (sum of tracked KPIs), this equals the Daily Sales sheet's
-    // Ethical figure. For All/All we use the exact month total; when filtered we sum
-    // the SRs in scope (unattributed sales sit in the Unassigned bucket, sr code 0).
-    const sbm = (RAW.salesByMonth && RAW.salesByMonth[month]) || null;
-    let salesActualFull = 0;
-    if (sbm) {
-      if (flm === "All" && srFilter === "All") salesActualFull = sbm.total;
-      else srs.forEach(s => { salesActualFull += (sbm.bySr[s.code] || 0); });
-    } else {
-      salesActualFull = totalActual; // fallback before backend redeploy
-    }
-
     // === FLM-level rollup with SR list nested ===
     const flmList = (flm === "All" ? RAW.flms : [flm]);
     const flmRollup = flmList.map(f => {
@@ -603,14 +598,13 @@ function Dashboard({ user, raw, onLogout }) {
 
     return {
       srs, srScorecards, kpiTotals, subBrandTotals,
-      totalTarget, totalActual, salesActualFull,
+      totalTarget, totalActual,
       flmRollup, flmCoverage, shopItems,
       flmDivision, divisionTotals,
     };
   }, [tick, year, month, flm, srFilter, custFilter]);
 
   const overallPct = pct(C.totalActual, C.totalTarget);
-  const salesPct = pct(C.salesActualFull, C.totalTarget);
   const activeTotal = (flm === "All" && srFilter === "All")
     ? RAW.activeByMonth[month]?.total
     : C.flmCoverage.reduce((s, r) => s + r.activeA, 0);
@@ -746,8 +740,8 @@ function Dashboard({ user, raw, onLogout }) {
 
       {/* === SUMMARY METRICS — 6 cards === */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:8, marginBottom:12}}>
-        <Metric label="Sales · Actual / Target" value={fmt(C.salesActualFull)}
-          actual={fmt(C.totalTarget)} pct={salesPct} accent="#2563eb"
+        <Metric label="Sales · Actual / Target" value={fmt(C.totalActual)}
+          actual={fmt(C.totalTarget)} pct={overallPct} accent="#2563eb"
           secondaryLabel="tgt" />
         <Metric label="Active 3-mo · Actual / Target" value={fmt(activeTotal)}
           actual={fmt(activeTotalT)} pct={pct(activeTotal, activeTotalT)} accent="#8b5cf6"
@@ -761,10 +755,10 @@ function Dashboard({ user, raw, onLogout }) {
         <Metric label="NU · Actual / Target" value={fmt(leadActualTotal)}
           actual={fmt(leadTotal)} pct={pct(leadActualTotal, leadTotal)} accent="#f59e0b"
           secondaryLabel="tgt" />
-        <Metric label="Variance" value={fmt(C.salesActualFull - C.totalTarget)}
-          actual={salesPct.toFixed(1) + "%"} pct={null}
-          accent={C.salesActualFull >= C.totalTarget ? "#059669" : "#dc2626"}
-          sub={C.salesActualFull >= C.totalTarget ? "Above target" : "Below target"} />
+        <Metric label="Variance" value={fmt(C.totalActual - C.totalTarget)}
+          actual={overallPct.toFixed(1) + "%"} pct={null}
+          accent={C.totalActual >= C.totalTarget ? "#059669" : "#dc2626"}
+          sub={C.totalActual >= C.totalTarget ? "Above target" : "Below target"} />
       </div>
 
       {/* === TABS === */}
