@@ -615,7 +615,7 @@ function Dashboard({ user, raw, onLogout }) {
     if (srFilter !== "All") custs = custs.filter(c => c.sr === Number(srFilter));
     if (custSearch) {
       const q = custSearch.toLowerCase();
-      custs = custs.filter(c => String(c.c).includes(q) || (c.n || "").toLowerCase().includes(q));
+      custs = custs.filter(c => String(c.c).includes(q) || String(c.n || "").toLowerCase().includes(q));
     }
     return custs.slice(0, 100); // cap for performance
   }, [flm, srFilter, custSearch]);
@@ -721,7 +721,7 @@ function Dashboard({ user, raw, onLogout }) {
           <select value={custFilter} onChange={e => setCustFilter(e.target.value)} style={selectStyle}>
             <option value="All">All ({filteredCustomers.length})</option>
             {filteredCustomers.map(c =>
-              <option key={c.c} value={c.c}>{c.c} — {(c.n || "").substring(0, 30)}</option>)}
+              <option key={c.c} value={c.c}>{c.c} — {String(c.n || "").substring(0, 30)}</option>)}
           </select>
         </FilterField>
       </div>
@@ -2733,7 +2733,7 @@ function Dashboard({ user, raw, onLogout }) {
         else if (lapseFilter === "12") view = view.filter(r => r.gap >= 12);
 
         const sortVal = (r, key) => {
-          if (key === "name") return (r.n || "").toLowerCase();
+          if (key === "name") return String(r.n || "").toLowerCase();
           if (key === "gap") return r.gap;
           if (key === "total") return r.total;
           if (key[0] === "p") return r.p[Number(key.slice(1))] || 0;
