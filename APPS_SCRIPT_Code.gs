@@ -304,13 +304,44 @@ function getDashboardData() {
   const cache = CacheService.getScriptCache();
   const cached = readChunkedCache_(cache, 'dashboard_data');
   if (cached) {
-    try { return JSON.parse(cached); } catch (e) {}
+    try {
+      const obj = JSON.parse(cached);
+      if (isPayloadHealthy_(obj)) return obj; // only trust a healthy cached payload
+    } catch (e) {}
   }
   const data = buildDashboardPayload();
-  try {
-    writeChunkedCache_(cache, 'dashboard_data', JSON.stringify(data), CACHE_SECONDS);
-  } catch (e) {}
+  // Only cache a HEALTHY payload. The morning import clears the cache, and a
+  // read taken while the source tab is still rebuilding produces near-zero
+  // actuals — caching that would serve zeros for CACHE_SECONDS (6h). Skipping
+  // the cache on a bad read means the next request simply rebuilds.
+  if (isPayloadHealthy_(data)) {
+    try {
+      writeChunkedCache_(cache, 'dashboard_data', JSON.stringify(data), CACHE_SECONDS);
+    } catch (e) {}
+  }
   return data;
+}
+
+// A build is "healthy" if it carries the core arrays and its total actuals are
+// at least half the best total ever recorded (a monotonic high-water mark in
+// Script Properties). This filters out partial reads taken mid-rebuild without
+// needing a fixed threshold. Self-heals: the first full read sets the mark.
+function isPayloadHealthy_(data) {
+  if (!data || !Array.isArray(data.srs) || !data.srs.length) return false;
+  if (!Array.isArray(data.actuals)) return false;
+  let total = 0;
+  for (let i = 0; i < data.actuals.length; i++) total += (data.actuals[i].v || 0);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const hw = Number(props.getProperty('actuals_highwater')) || 0;
+    if (total >= hw * 0.5) {
+      if (total > hw) props.setProperty('actuals_highwater', String(total));
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return total > 0; // if Properties is unavailable, accept any non-empty build
+  }
 }
 
 // === Chunked cache ===
