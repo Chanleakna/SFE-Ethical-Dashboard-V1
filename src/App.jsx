@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer
@@ -10,6 +10,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Refresh interval for live data (seconds)
 const REFRESH_INTERVAL = 60;
+// localStorage key for the last-good payload (instant open while refetching)
+const CACHE_KEY = "sfe_dashboard_payload_v1";
 
 const KPI_DEFS = [
   { key: "SM",      label: "SM",      brand: "SM",        color: "#94a3b8" },
@@ -174,12 +176,24 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   // Fetch data after login
+  const hasDataRef = useRef(false);
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    
+
+    // Instant open: render the last-good payload from cache while we refetch in
+    // the background. The Apps Script call recomputes the whole sheet and can be
+    // slow, so this keeps the dashboard from blocking on a blank loading screen.
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data && !data.error) { setRaw(data); hasDataRef.current = true; }
+      }
+    } catch (e) { /* ignore corrupt / oversized cache */ }
+
     const fetchData = async () => {
-      setLoading(true);
+      if (!hasDataRef.current) setLoading(true);
       try {
         const res = await fetch(API_URL + "?action=data");
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -187,18 +201,22 @@ export default function App() {
         if (cancelled) return;
         setLoading(false);
         if (data && data.error) {
-          setError(data.error);
+          if (!hasDataRef.current) setError(data.error);
         } else {
           setRaw(data);
+          hasDataRef.current = true;
           setError(null);
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) { /* quota — skip */ }
         }
       } catch (err) {
         if (cancelled) return;
         setLoading(false);
-        setError(err.message || "Failed to load data");
+        // Don't replace a working (cached) view with an error screen on a
+        // transient refresh failure — only surface errors when we have nothing.
+        if (!hasDataRef.current) setError(err.message || "Failed to load data");
       }
     };
-    
+
     fetchData();
     const id = setInterval(fetchData, REFRESH_INTERVAL * 1000);
     return () => { cancelled = true; clearInterval(id); };
