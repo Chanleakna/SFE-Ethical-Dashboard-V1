@@ -181,6 +181,12 @@ export default function App() {
     if (!user) return;
     let cancelled = false;
 
+    // A complete payload must carry the core arrays. We only ever render / cache
+    // data that passes this check, so a slow or half-built Apps Script response
+    // can't poison the view with empty (very low) numbers.
+    const isComplete = (d) => d && !d.error && Array.isArray(d.srs) && d.srs.length > 0
+      && Array.isArray(d.actuals) && Array.isArray(d.targets);
+
     // Instant open: render the last-good payload from cache while we refetch in
     // the background. The Apps Script call recomputes the whole sheet and can be
     // slow, so this keeps the dashboard from blocking on a blank loading screen.
@@ -188,7 +194,7 @@ export default function App() {
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const data = JSON.parse(cached);
-        if (data && !data.error) { setRaw(data); hasDataRef.current = true; }
+        if (isComplete(data)) { setRaw(data); hasDataRef.current = true; }
       }
     } catch (e) { /* ignore corrupt / oversized cache */ }
 
@@ -200,14 +206,16 @@ export default function App() {
         const data = await res.json();
         if (cancelled) return;
         setLoading(false);
-        if (data && data.error) {
-          if (!hasDataRef.current) setError(data.error);
-        } else {
+        if (isComplete(data)) {
           setRaw(data);
           hasDataRef.current = true;
           setError(null);
           try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) { /* quota — skip */ }
+        } else if (!hasDataRef.current) {
+          // Nothing good to show yet — surface why instead of rendering empties.
+          setError((data && data.error) || "Data looks incomplete — the Apps Script may still be deploying or returned partial data. Refresh in a moment.");
         }
+        // else: keep showing the last good data; ignore this bad refresh.
       } catch (err) {
         if (cancelled) return;
         setLoading(false);
