@@ -799,16 +799,21 @@ function buildDashboardPayload() {
         flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1;
         return;
       }
-      const flmsForCust = {};
+      // Counts are SUMMED, not distinct: a customer shared across SRs counts once
+      // for EACH SR (so two SRs sharing the same 3 customers both show 3), and the
+      // FLM total is the sum of its SRs' counts (not a distinct customer count).
       srs.forEach(sr => {
         srCount[sr] = (srCount[sr] || 0) + 1;
         const f = srToFlm[sr];
-        if (f) flmsForCust[f] = true;
+        if (f) flmCount[f] = (flmCount[f] || 0) + 1;
       });
-      Object.keys(flmsForCust).forEach(f => flmCount[f] = (flmCount[f] || 0) + 1);
     });
+    // Overall total = sum of every FLM bucket (= sum of all SR counts + Unassigned),
+    // matching the summed semantics above rather than a distinct customer count.
+    let activeTotalSum = 0;
+    Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
     activeByMonth[m] = {
-      total: Object.keys(custs).length,
+      total: activeTotalSum,
       byFlm: flmCount, bySr: srCount,
       customers: Object.keys(custs).map(Number),
     };
