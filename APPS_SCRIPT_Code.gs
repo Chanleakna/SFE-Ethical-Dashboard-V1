@@ -690,6 +690,7 @@ function buildDashboardPayload() {
   //    Ethical), so Shop Around must count their sales regardless of department.
   const dailyByPeriodCust = {};
   const shopByPeriodCust = {};
+  const srByPeriodCust = {};  // period -> cust -> { srCode: true } — who actually sold (Ethical)
   daily.forEach(function (r) {
     const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
@@ -701,6 +702,15 @@ function buildDashboardPayload() {
     if (!isEthical(r['Dep'])) return;  // everything below is Ethical-only
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
     dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + sales;
+    // Track which SR actually sold to this customer (from the daily SR column),
+    // so Active can credit the selling SR — matching how Sales attributes.
+    const srName = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+    const srCode = srName ? srMatch[srName] : null;
+    if (srCode) {
+      if (!srByPeriodCust[period]) srByPeriodCust[period] = {};
+      if (!srByPeriodCust[period][c]) srByPeriodCust[period][c] = {};
+      srByPeriodCust[period][c][srCode] = true;
+    }
   });
 
   // === SHOP AROUND ===
@@ -784,14 +794,28 @@ function buildDashboardPayload() {
       if (!pc) return;
       Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
     });
+    // SRs who actually sold to each customer anywhere in this 3-month window.
+    const soldSrs = {};
+    periods.forEach(function (p) {
+      const sc = srByPeriodCust[p];
+      if (!sc) return;
+      Object.keys(sc).forEach(function (cc) {
+        if (!soldSrs[cc]) soldSrs[cc] = {};
+        Object.keys(sc[cc]).forEach(function (sr) { soldSrs[cc][sr] = true; });
+      });
+    });
     const custs = {};
     Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
     const flmCount = {}, srCount = {};
     Object.keys(custs).forEach(cs => {
       const c = Number(cs);
+      // Credit the SR(s) who actually sold to the customer (daily SR column) plus
+      // any shared partners; fall back to the customer master only if neither
+      // exists. This is why a customer Heng Norm sold to now counts for him.
       let srs = [];
-      if (SHARED[c]) srs = SHARED[c].map(r => r.sr);
-      else if (custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
+      if (soldSrs[cs]) srs = srs.concat(Object.keys(soldSrs[cs]).map(Number));
+      if (SHARED[c]) srs = srs.concat(SHARED[c].map(r => r.sr));
+      if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
       // Dedupe: count each customer ONCE per SR even if they're shared with the
       // same SR across multiple categories (otherwise the active count inflates).
       srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
