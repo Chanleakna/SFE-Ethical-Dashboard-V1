@@ -564,6 +564,23 @@ function buildDashboardPayload() {
     return M3[String(s).trim().toLowerCase().slice(0, 3)];
   };
 
+  // Robust numeric parse. Some Export cells arrive as TEXT — "1,234", " 1,234.50 ",
+  // currency "$1,234", or accounting negatives "(500)". Number() turns those into
+  // NaN, which was being coerced to 0 and silently dropped, so the dashboard
+  // undercounted vs the raw Excel column. Strip separators/symbols so every sale
+  // is counted exactly as the sheet shows it.
+  const numVal = function (x) {
+    if (typeof x === 'number') return x;
+    if (x == null || x === '') return 0;
+    var s = String(x).trim();
+    if (s === '') return 0;
+    var neg = /^\(.*\)$/.test(s);            // accounting negative: (1,234) => -1234
+    s = s.replace(/[^0-9.\-]/g, '');
+    var n = parseFloat(s);
+    if (!isFinite(n)) return 0;
+    return neg ? -Math.abs(n) : n;
+  };
+
   const custDict = {};
   daily.forEach(r => {
     const c = Number(r['Customer Code']);
@@ -592,7 +609,7 @@ function buildDashboardPayload() {
     const cat = mat.cat;
     // Sales actuals match the Export tab exactly — negatives (returns/credit
     // notes) are included, same as the raw data.
-    const sales = Number(r['Total Act. Sales']) || 0;
+    const sales = numVal(r['Total Act. Sales']);
     const flm = normFlm(r['FLM']);
     const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
     const dailySr = srMatch[srFirst] || null;
@@ -654,7 +671,7 @@ function buildDashboardPayload() {
     const monthNum = mapMonth(r['Short Cut']);
     if (!monthNum) return;
     if (Number(r['Year']) !== 2026) return;
-    const sales = Number(r['Total Act. Sales']) || 0;
+    const sales = numVal(r['Total Act. Sales']);
     if (!sales) return;
     const cust = Number(r['Customer Code']);
     const mat = matMap[Number(r['Material Code'])];
@@ -696,7 +713,7 @@ function buildDashboardPayload() {
     const period = (r['Year'] || 0) * 100 + m;
     const c = Number(r['Customer Code']);
     if (!c) return;
-    const sales = Number(r['Total Act. Sales']) || 0;  // negatives included (matches Export)
+    const sales = numVal(r['Total Act. Sales']);  // negatives included (matches Export)
     if (!shopByPeriodCust[period]) shopByPeriodCust[period] = {};
     shopByPeriodCust[period][c] = (shopByPeriodCust[period][c] || 0) + sales;
     if (!isEthical(r['Dep'])) return;  // everything below is Ethical-only
@@ -1107,7 +1124,7 @@ function buildDashboardPayload() {
     const period = yr * 100 + mn;
     if (period < 202501) return; // from Jan 2025 onward
     // Match the Export tab exactly — negatives included.
-    const sales = Number(r['Total Act. Sales']) || 0;
+    const sales = numVal(r['Total Act. Sales']);
     if (!custMonthly[c]) {
       const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
       custMonthly[c] = {
@@ -1247,7 +1264,7 @@ function debugEthicalFilter() {
     if (Number(r['Year']) !== 2026) return;
     const mn = String(r['Short Cut']).trim();
     if (mn !== 'Apr' && mn !== 'April') return;
-    const sales = Number(r['Total Act. Sales']) || 0;
+    const sales = numVal(r['Total Act. Sales']);
     aprAllSum += sales;
     aprAllRows++;
     const dep = String(r['Dep'] || '').trim().toUpperCase();
