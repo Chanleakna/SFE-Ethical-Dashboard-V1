@@ -807,6 +807,7 @@ function buildDashboardPayload() {
     const custs = {};
     Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
     const flmCount = {}, srCount = {};
+    const custSrsMap = {}; // customer code -> [sr codes crediting them] (one source of truth for all tabs)
     Object.keys(custs).forEach(cs => {
       const c = Number(cs);
       // Credit the SR(s) who actually sold to the customer (daily SR column) plus
@@ -823,6 +824,7 @@ function buildDashboardPayload() {
         flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1;
         return;
       }
+      custSrsMap[c] = srs;
       // Counts are SUMMED, not distinct: a customer shared across SRs counts once
       // for EACH SR (so two SRs sharing the same 3 customers both show 3), and the
       // FLM total is the sum of its SRs' counts (not a distinct customer count).
@@ -840,6 +842,7 @@ function buildDashboardPayload() {
       total: activeTotalSum,
       byFlm: flmCount, bySr: srCount,
       customers: Object.keys(custs).map(Number),
+      custSrs: custSrsMap,
     };
   });
 
