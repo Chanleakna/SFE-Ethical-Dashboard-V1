@@ -12,3 +12,7 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Generated data deliverables (contain source data, not code)
+Reconciliation_*.xlsx
+*.xlsx
