@@ -528,7 +528,7 @@ function buildDashboardPayload() {
   // future) rolls up under their successor. Add more "Old Name": "New Name"
   // pairs here whenever a territory is reassigned.
   const SR_RENAMES = {
-    'Heng Norm': 'Seng Sokchea',
+    'Seng Sokchea': 'Heng Norm',
   };
   const firstSr = function (r) {
     if (!r['SR']) return null;
