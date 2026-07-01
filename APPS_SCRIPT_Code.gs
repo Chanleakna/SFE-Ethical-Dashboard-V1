@@ -524,10 +524,17 @@ function buildDashboardPayload() {
 
   const srMatch = {};
   const dailySrNames = {};
+  const dailySrFlmCount = {}; // SR name -> { FLM -> count }, to pick each SR's FLM from the data
   daily.forEach(r => {
     if (r['SR']) {
       const first = String(r['SR']).split(/[,;]/)[0].trim();
+      if (!first) return;
       dailySrNames[first] = true;
+      const f = normFlm(r['FLM']);
+      if (f) {
+        if (!dailySrFlmCount[first]) dailySrFlmCount[first] = {};
+        dailySrFlmCount[first][f] = (dailySrFlmCount[first][f] || 0) + 1;
+      }
     }
   });
 
@@ -549,9 +556,22 @@ function buildDashboardPayload() {
     }
   });
 
-  // NOTE: SRs found in daily sales but NOT matched to the Ethical master list
-  // are intentionally NOT added. Only Ethical Sales SRs (from Target Set) appear
-  // on the dashboard. Unmatched daily-sales names fall through as Unassigned.
+  // Auto-include SRs that appear in the daily sales but are NOT in the Target Set
+  // (e.g. Heng Norm). Without this they fall through as "Unassigned" and their
+  // sales/active never show under their name or FLM. Each gets a stable synthetic
+  // code and its FLM from the data, so every selling SR appears and the totals
+  // reconcile to the raw file at total / FLM / SR level. Synthetic SRs simply
+  // have no targets (target-based % shows against 0).
+  Object.keys(dailySrNames).sort().forEach(function (nm) {
+    if (srMatch[nm]) return; // already matched to a Target Set SR
+    const code = 900000000 + (srMaster.length); // 9-digit, won't collide with real 8-digit codes
+    let bestFlm = null, bestN = -1;
+    const fc = dailySrFlmCount[nm] || {};
+    Object.keys(fc).forEach(function (f) { if (fc[f] > bestN) { bestN = fc[f]; bestFlm = f; } });
+    srMatch[nm] = code;
+    srToFlm[code] = bestFlm;
+    srMaster.push({ code: code, name: nm, flm: bestFlm, synthetic: true });
+  });
 
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
   const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
@@ -678,11 +698,13 @@ function buildDashboardPayload() {
     const cat = mat ? mat.cat : null;
     const bucket = salesByMonth[monthNum];
     bucket.total += sales;
+    // FLM breakdown comes straight from the row's FLM column, so by-FLM ties to
+    // the raw data exactly (every row's full sale lands in one FLM).
+    const rowFlm = normFlm(r['FLM']) || 'Unassigned';
+    bucket.byFlm[rowFlm] = (bucket.byFlm[rowFlm] || 0) + sales;
 
     const addToSr = (sr, amt) => {
       bucket.bySr[sr] = (bucket.bySr[sr] || 0) + amt;
-      const f = sr ? (srToFlm[sr] || 'Unassigned') : 'Unassigned';
-      bucket.byFlm[f] = (bucket.byFlm[f] || 0) + amt;
     };
 
     let done = false;
