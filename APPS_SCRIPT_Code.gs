@@ -584,7 +584,7 @@ function buildDashboardPayload() {
   const custDict = {};
   daily.forEach(r => {
     const c = Number(r['Customer Code']);
-    if (!c || Number(r['Year']) !== 2026 || !r['FLM']) return;
+    if (!c || numVal(r['Year']) !== 2026 || !r['FLM']) return;
     if (!custDict[c]) {
       const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
       custDict[c] = {
@@ -604,7 +604,7 @@ function buildDashboardPayload() {
     if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) return;
     const monthNum = mapMonth(r['Short Cut']);
     if (!monthNum) return;
-    if (Number(r['Year']) !== 2026) return;
+    if (numVal(r['Year']) !== 2026) return;
     const cust = Number(r['Customer Code']);
     const cat = mat.cat;
     // Sales actuals match the Export tab exactly — negatives (returns/credit
@@ -670,7 +670,7 @@ function buildDashboardPayload() {
     if (!isEthical(r['Dep'])) return;
     const monthNum = mapMonth(r['Short Cut']);
     if (!monthNum) return;
-    if (Number(r['Year']) !== 2026) return;
+    if (numVal(r['Year']) !== 2026) return;
     const sales = numVal(r['Total Act. Sales']);
     if (!sales) return;
     const cust = Number(r['Customer Code']);
@@ -1261,7 +1261,7 @@ function debugEthicalFilter() {
   let aprAllRows = 0;
   
   daily.forEach(r => {
-    if (Number(r['Year']) !== 2026) return;
+    if (numVal(r['Year']) !== 2026) return;
     const mn = String(r['Short Cut']).trim();
     if (mn !== 'Apr' && mn !== 'April') return;
     const sales = numVal(r['Total Act. Sales']);
