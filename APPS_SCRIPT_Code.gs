@@ -522,12 +522,26 @@ function buildDashboardPayload() {
       .split(/[,;\s\-]+/).filter(p => p && p.length > 1);
   };
 
+  // === SR handovers / renames ===
+  // Maps an OLD daily-sales SR name to the CURRENT one. Applied everywhere the
+  // 'SR' column is read, so a rep's full history (customers + sales, past AND
+  // future) rolls up under their successor. Add more "Old Name": "New Name"
+  // pairs here whenever a territory is reassigned.
+  const SR_RENAMES = {
+    'Heng Norm': 'Seng Sokchea',
+  };
+  const firstSr = function (r) {
+    if (!r['SR']) return null;
+    const nm = String(r['SR']).split(/[,;]/)[0].trim();
+    return SR_RENAMES[nm] || nm || null;
+  };
+
   const srMatch = {};
   const dailySrNames = {};
   const dailySrFlmCount = {}; // SR name -> { FLM -> count }, to pick each SR's FLM from the data
   daily.forEach(r => {
     if (r['SR']) {
-      const first = String(r['SR']).split(/[,;]/)[0].trim();
+      const first = firstSr(r);
       if (!first) return;
       dailySrNames[first] = true;
       const f = normFlm(r['FLM']);
@@ -606,7 +620,7 @@ function buildDashboardPayload() {
     const c = Number(r['Customer Code']);
     if (!c || numVal(r['Year']) !== 2026 || !r['FLM']) return;
     if (!custDict[c]) {
-      const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+      const srFirst = firstSr(r);
       custDict[c] = {
         flm: normFlm(r['FLM']),
         name: r['Customer Name'],
@@ -631,7 +645,7 @@ function buildDashboardPayload() {
     // notes) are included, same as the raw data.
     const sales = numVal(r['Total Act. Sales']);
     const flm = normFlm(r['FLM']);
-    const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+    const srFirst = firstSr(r);
     const dailySr = srMatch[srFirst] || null;
 
     if (SHARED[cust]) {
@@ -716,7 +730,7 @@ function buildDashboardPayload() {
       }
     }
     if (!done) {
-      const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+      const srFirst = firstSr(r);
       const sr = srMatch[srFirst] || (custDict[cust] && custDict[cust].sr) || 0;
       addToSr(sr, sales);
     }
@@ -743,7 +757,7 @@ function buildDashboardPayload() {
     dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + sales;
     // Track which SR actually sold to this customer (from the daily SR column),
     // so Active can credit the selling SR — matching how Sales attributes.
-    const srName = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+    const srName = firstSr(r);
     const srCode = srName ? srMatch[srName] : null;
     if (srCode) {
       if (!srByPeriodCust[period]) srByPeriodCust[period] = {};
@@ -1148,7 +1162,7 @@ function buildDashboardPayload() {
     // Match the Export tab exactly — negatives included.
     const sales = numVal(r['Total Act. Sales']);
     if (!custMonthly[c]) {
-      const srFirst = r['SR'] ? String(r['SR']).split(/[,;]/)[0].trim() : null;
+      const srFirst = firstSr(r);
       custMonthly[c] = {
         c: c,
         n: r['Customer Name'] || ('Customer ' + c),
