@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer
+  ResponsiveContainer, LabelList
 } from "recharts";
 
 // === CONFIGURE THIS LINE ===
@@ -693,7 +693,7 @@ function Dashboard({ user, raw, onLogout }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R7 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R8 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -2439,8 +2439,14 @@ function Dashboard({ user, raw, onLogout }) {
                           <YAxis tick={{fontSize:10, fill:"#6b7280"}} tickFormatter={fmtVal} />
                           <Tooltip formatter={(v) => fmtVal(v)} />
                           <Legend wrapperStyle={{fontSize:11}} />
-                          <Bar dataKey="Target" fill="#d1d5db" name="Target" maxBarSize={28} />
-                          <Bar dataKey="Actual" fill={kpi.color} name="Actual" maxBarSize={28} />
+                          <Bar dataKey="Target" fill="#d1d5db" name="Target" maxBarSize={28}>
+                            <LabelList dataKey="Target" position="top" formatter={fmtVal}
+                              style={{fontSize:9, fill:"#9ca3af"}} />
+                          </Bar>
+                          <Bar dataKey="Actual" fill={kpi.color} name="Actual" maxBarSize={28}>
+                            <LabelList dataKey="Actual" position="top" formatter={fmtVal}
+                              style={{fontSize:9, fill:"#374151", fontWeight:600}} />
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
