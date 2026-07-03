@@ -383,6 +383,35 @@ function clearChunkedCache_(cache, key) {
   cache.removeAll(keys);
 }
 
+// =============================================================================
+// AUTO-REFRESH (time-driven trigger)
+// =============================================================================
+// Keeps the cache warm AND fresh: rebuilds the dashboard data on a schedule so
+// daily data entered into the Export tab shows up on its own — no one has to
+// click Refresh. (isPayloadHealthy_ still guards against caching a mid-import
+// partial read.)
+//
+// >>> RUN setupAutoRefresh() ONCE from the editor (Run menu) to install it. <<<
+const REFRESH_EVERY_MIN = 15; // allowed: 1, 5, 10, 15, or 30
+
+function refreshDashboardCache() {
+  try { clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data'); } catch (e) {}
+  try { getDashboardData(); } catch (e) { Logger.log('refreshDashboardCache: ' + e.message); }
+}
+
+function setupAutoRefresh() {
+  // Remove existing triggers for this handler so re-running doesn't stack them.
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshDashboardCache') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('refreshDashboardCache')
+    .timeBased()
+    .everyMinutes(REFRESH_EVERY_MIN)
+    .create();
+  refreshDashboardCache(); // warm it immediately
+  return 'Auto-refresh installed: every ' + REFRESH_EVERY_MIN + ' minutes.';
+}
+
 function buildDashboardPayload() {
   const imsSS    = SpreadsheetApp.openById(SHEET_IDS.ims);
   const dailySS  = SpreadsheetApp.openById(SHEET_IDS.daily);
