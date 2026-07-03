@@ -181,6 +181,11 @@ export default function App() {
   const hasDataRef = useRef(false);
   const lastMagRef = useRef(null);   // magnitude (total actuals) of last accepted payload
   const lowStreakRef = useRef(0);    // consecutive suspiciously-low reads
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const forceRef = useRef(false);
+  // Force-refresh: clears the 6h server cache, then refetches — so daily data
+  // you just entered shows immediately instead of waiting for the cache.
+  const forceRefresh = () => { forceRef.current = true; setRefreshNonce(n => n + 1); };
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -246,10 +251,21 @@ export default function App() {
       }
     };
 
-    fetchData();
+    const start = async () => {
+      // On an explicit Refresh, clear the server cache first so we rebuild from
+      // the current sheet (picks up daily data entered since the last cache).
+      if (forceRef.current) {
+        forceRef.current = false;
+        setLoading(true);
+        try { await fetch(API_URL + "?action=clearCache"); } catch (e) { /* ignore */ }
+        if (cancelled) return;
+      }
+      fetchData();
+    };
+    start();
     const id = setInterval(fetchData, REFRESH_INTERVAL * 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [user]);
+  }, [user, refreshNonce]);
 
   if (!user) return <Login onLogin={(u) => setUser(u)} />;
   
@@ -272,7 +288,7 @@ export default function App() {
 
   return (
     <ErrorBoundary onReset={() => setUser(null)}>
-      <Dashboard user={user} raw={raw} onLogout={() => setUser(null)} />
+      <Dashboard user={user} raw={raw} onLogout={() => setUser(null)} onRefresh={forceRefresh} refreshing={loading} />
     </ErrorBoundary>
   );
 }
@@ -408,7 +424,7 @@ function Login({ onLogin }) {
   );
 }
 
-function Dashboard({ user, raw, onLogout }) {
+function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   // Show only Ethical-master SRs. Auto-detected SRs (found in daily sales but
   // not in the Target Set) are assigned negative codes by the backend, so we
   // filter them out here too — they disappear even before the backend redeploys.
@@ -693,7 +709,7 @@ function Dashboard({ user, raw, onLogout }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R8 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R9 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -704,9 +720,12 @@ function Dashboard({ user, raw, onLogout }) {
             <span style={{color:"#6b7280"}}>{user.role}:</span>{" "}
             <strong>{user.name}</strong>
           </div>
-          <button onClick={() => { setTick(t => t + 1); setLastRefresh(new Date()); }}
-            style={{ ...btnStyle, background: "#2563eb", borderColor: "#2563eb", color: "#fff" }}>
-            ↻ Refresh
+          <button onClick={() => { if (onRefresh) onRefresh(); setTick(t => t + 1); setLastRefresh(new Date()); }}
+            disabled={refreshing}
+            title="Pulls fresh data from the sheet (clears the cache)"
+            style={{ ...btnStyle, background: refreshing ? "#93c5fd" : "#2563eb", borderColor: "#2563eb",
+              color: "#fff", cursor: refreshing ? "wait" : "pointer" }}>
+            {refreshing ? "↻ Refreshing…" : "↻ Refresh"}
           </button>
           <button onClick={() => setAuto(a => !a)}
             style={{
