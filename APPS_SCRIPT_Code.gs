@@ -934,6 +934,34 @@ function buildDashboardPayload() {
     return null;
   };
 
+  // Find the column in a target row that corresponds to calendar month m (2026).
+  // Handles BOTH text headers ('Jan-26', 'Jul-26 FINAL', 'Jul-26') AND date-valued
+  // headers (a 7/1/2026 cell that readSheet stringified to a full date string).
+  const findMonthCol = (row, m) => {
+    const lbl = MONTH_LABELS_SHORT[m-1];
+    const textCands = [
+      lbl + '-26\nFINAL', lbl + '-26 FINAL', lbl + '-26', lbl + '_Final',
+      lbl + '-26\n(Act)', lbl + '-26 (Act)', lbl + ' 2026', lbl + '-2026', lbl,
+    ];
+    for (let i = 0; i < textCands.length; i++) if (textCands[i] in row) return textCands[i];
+    // Date-valued header: parse each key, match the month (year 2025 or 2026).
+    for (const key in row) {
+      if (!key) continue;
+      const d = new Date(key);
+      if (!isNaN(d.getTime()) && (d.getFullYear() === 2026 || d.getFullYear() === 2025)
+          && (d.getMonth() + 1) === m) return key;
+    }
+    // Text header that embeds the month name + a date/'26' hint, e.g. '01-July',
+    // 'July-26', 'Jul FINAL 2026' — but NOT a bare month word by itself.
+    const monLc = lbl.toLowerCase();
+    for (const key in row) {
+      if (!key) continue;
+      const k = String(key).toLowerCase();
+      if (k.indexOf(monLc) >= 0 && (k.indexOf('26') >= 0 || /[\/\-]/.test(k))) return key;
+    }
+    return null;
+  };
+
   const activeTargetByMonth = {};
   const MONTH_LABELS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   MONTHS.forEach(m => {
@@ -947,7 +975,7 @@ function buildDashboardPayload() {
     acTarget.forEach(r => {
       const sr = Number(r['ID']);
       if (!sr) return;
-      const col = findCol(r, candidates);
+      const col = findMonthCol(r, m);
       const v = col ? Number(r[col]) || 0 : 0;
       bySr[sr] = v;
       const f = normFlm(r['FLM']);
@@ -969,7 +997,7 @@ function buildDashboardPayload() {
     ac1Target.forEach(r => {
       const sr = Number(r['SR Code']);
       if (!sr) return;
-      const col = findCol(r, candidates);
+      const col = findMonthCol(r, m);
       const v = col ? Number(r[col]) || 0 : 0;
       bySr[sr] = v;
       const f = normFlm(r['Manager']);
@@ -992,7 +1020,7 @@ function buildDashboardPayload() {
       rows.forEach(r => {
         const sr = Number(r['ID']);
         if (!sr) return;
-        const col = findCol(r, candidates);
+        const col = findMonthCol(r, m);
         const v = col ? Number(r[col]) || 0 : 0;
         bySr[sr] = (bySr[sr] || 0) + v;
         const f = normFlm(r['FLM']);
@@ -1116,7 +1144,7 @@ function buildDashboardPayload() {
     nlTarget.forEach(r => {
       const sr = Number(r['ID']);
       if (!sr) return;
-      const col = findCol(r, candidates);
+      const col = findMonthCol(r, m);
       const v = col ? Number(r[col]) || 0 : 0;
       bySr[sr] = v;
       const f = normFlm(r['FLM']);
@@ -1137,7 +1165,7 @@ function buildDashboardPayload() {
     ldTarget.forEach(r => {
       const sr = Number(r['ID']);
       if (!sr) return;
-      const col = findCol(r, candidates);
+      const col = findMonthCol(r, m);
       const v = col ? Number(r[col]) || 0 : 0;
       bySr[sr] = v;
       const f = normFlm(r['FLM']);
@@ -1164,7 +1192,7 @@ function buildDashboardPayload() {
     ldActual.forEach(r => {
       const sr = Number(r['ID']);
       if (!sr) return;
-      const col = findCol(r, candidates);
+      const col = findMonthCol(r, m);
       const v = col ? Number(r[col]) || 0 : 0;
       bySr[sr] = v;
       const f = normFlm(r['FLM']);
