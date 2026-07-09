@@ -402,17 +402,32 @@ function refreshDashboardCache() {
   try { getDashboardData(); } catch (e) { Logger.log('refreshDashboardCache: ' + e.message); }
 }
 
+// Fires whenever a data sheet is edited: drop the cache so the very next load
+// rebuilds from the current sheet (edits show up without waiting for the timer).
+function onSheetChange() {
+  try { clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data'); } catch (e) {}
+}
+
 function setupAutoRefresh() {
-  // Remove existing triggers for this handler so re-running doesn't stack them.
+  // Remove the triggers we manage so re-running doesn't stack duplicates.
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'refreshDashboardCache') ScriptApp.deleteTrigger(t);
+    const h = t.getHandlerFunction();
+    if (h === 'refreshDashboardCache' || h === 'onSheetChange') ScriptApp.deleteTrigger(t);
   });
+  // 1) Time trigger: rebuild the cache every N minutes (keeps it warm AND fresh).
   ScriptApp.newTrigger('refreshDashboardCache')
-    .timeBased()
-    .everyMinutes(REFRESH_EVERY_MIN)
-    .create();
+    .timeBased().everyMinutes(REFRESH_EVERY_MIN).create();
+  // 2) On-edit trigger on each data spreadsheet: clear the cache the instant a
+  //    number changes, so the next dashboard load is fresh.
+  const ssIds = [SHEET_IDS.ims, SHEET_IDS.daily, SHEET_IDS.material];
+  let edited = 0;
+  ssIds.forEach(function (id) {
+    try { ScriptApp.newTrigger('onSheetChange').forSpreadsheet(id).onChange().create(); edited++; }
+    catch (e) { Logger.log('onChange trigger failed for ' + id + ': ' + e.message); }
+  });
   refreshDashboardCache(); // warm it immediately
-  return 'Auto-refresh installed: every ' + REFRESH_EVERY_MIN + ' minutes.';
+  return 'Auto-refresh installed: rebuild every ' + REFRESH_EVERY_MIN +
+         ' min + clear-on-edit on ' + edited + ' of ' + ssIds.length + ' data sheets.';
 }
 
 function buildDashboardPayload() {
