@@ -1,0 +1,54 @@
+name: Deploy to Apps Script
+
+# Auto-deploys BOTH files to your Apps Script project on every push to main:
+#   - APPS_SCRIPT_Code.gs  -> the Code.gs server file
+#   - dist/index.html      -> the `index` HTML file (built fresh here)
+# Then bumps the web-app deployment to a new version and clears the cache.
+#
+# It stays DORMANT until you add the repo secrets (see AUTODEPLOY.md), so
+# merging this file changes nothing until you switch it on.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Skip entirely until the secrets are configured (no failure emails before then).
+    if: ${{ vars.AUTODEPLOY_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps & build the frontend (single-file index.html)
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install clasp
+        run: npm i -g @google/clasp@2.4.2
+
+      - name: Assemble the clasp push folder
+        run: |
+          mkdir -p .deploy
+          cp APPS_SCRIPT_Code.gs .deploy/Code.js
+          cp dist/index.html     .deploy/index.html
+          cp appsscript.json     .deploy/appsscript.json
+          printf '{"scriptId":"%s","rootDir":".deploy"}' "${{ secrets.APPS_SCRIPT_ID }}" > .clasp.json
+
+      - name: Authenticate clasp
+        run: printf '%s' '${{ secrets.CLASP_CREDENTIALS }}' > "$HOME/.clasprc.json"
+
+      - name: Push code to Apps Script
+        run: clasp push -f
+
+      - name: Publish a new web-app version
+        run: clasp deploy -i "${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}" -d "auto-deploy ${{ github.sha }}"
+
+      - name: Clear the dashboard cache
+        run: curl -s "${{ secrets.APPS_SCRIPT_EXEC_URL }}?action=clearCache" || true
