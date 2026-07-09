@@ -30,6 +30,9 @@ const TAB_NAMES = {
   targets:      'Target Set',
   shopDetails:  'Target - Shop Around Details',
   activeTarget: 'Target-Active Cus 3 Months',
+  activeTarget1:'Target Cus 1month',
+  llTarget:     'Target-L&L',
+  llActual:     'Actual-L&L',
   newTarget:    'Target - New Listing',
   leadTarget:   'Target-Lead',
   leadActual:   'Actual-Lead',
@@ -433,6 +436,11 @@ function buildDashboardPayload() {
   const acTarget   = readSheet(imsSS,    TAB_NAMES.activeTarget);
   const nlTarget   = readSheet(imsSS,    TAB_NAMES.newTarget);
   const ldTarget   = readSheet(imsSS,    TAB_NAMES.leadTarget);
+  // New KPIs — tolerate a missing tab so the whole dashboard never breaks.
+  let ac1Target = [], llTarget = [], llActual = [];
+  try { ac1Target = readSheet(imsSS, TAB_NAMES.activeTarget1); } catch (e) { Logger.log('Note: Target Cus 1month tab not found'); }
+  try { llTarget  = readSheet(imsSS, TAB_NAMES.llTarget); }      catch (e) { Logger.log('Note: Target-L&L tab not found'); }
+  try { llActual  = readSheet(imsSS, TAB_NAMES.llActual); }      catch (e) { Logger.log('Note: Actual-L&L tab not found'); }
 
   const matMap = {};
   materials.forEach(r => {
@@ -858,75 +866,68 @@ function buildDashboardPayload() {
     shopByMonth[m] = items;
   });
 
-  const activeByMonth = {};
-  MONTHS.forEach(m => {
-    const periods = [];
-    [m-2, m-1, m].forEach(prev => {
-      if (prev >= 1) periods.push(202600 + prev);
-      else periods.push(202500 + (12 + prev));
-    });
-    // Active 3-mo is the ONLY place negative sales are applied: sum each
-    // customer's NET sales across the window and count them active only if the
-    // net is positive (returns/credit notes net out a customer's activity).
-    // Reuses dailyByPeriodCust (built once above) instead of re-scanning the
-    // whole daily sheet 12 times — much faster on large data.
-    const custNet = {};
-    periods.forEach(function (p) {
-      const pc = dailyByPeriodCust[p];
-      if (!pc) return;
-      Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
-    });
-    // SRs who actually sold to each customer anywhere in this 3-month window.
-    const soldSrs = {};
-    periods.forEach(function (p) {
-      const sc = srByPeriodCust[p];
-      if (!sc) return;
-      Object.keys(sc).forEach(function (cc) {
-        if (!soldSrs[cc]) soldSrs[cc] = {};
-        Object.keys(sc[cc]).forEach(function (sr) { soldSrs[cc][sr] = true; });
-      });
-    });
-    const custs = {};
-    Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
-    const flmCount = {}, srCount = {};
-    const custSrsMap = {}; // customer code -> [sr codes crediting them] (one source of truth for all tabs)
-    Object.keys(custs).forEach(cs => {
-      const c = Number(cs);
-      // Credit the SR(s) who actually sold to the customer (daily SR column) plus
-      // any shared partners; fall back to the customer master only if neither
-      // exists. This is why a customer Heng Norm sold to now counts for him.
-      let srs = [];
-      if (soldSrs[cs]) srs = srs.concat(Object.keys(soldSrs[cs]).map(Number));
-      if (SHARED[c]) srs = srs.concat(SHARED[c].map(r => r.sr));
-      if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
-      // Dedupe: count each customer ONCE per SR even if they're shared with the
-      // same SR across multiple categories (otherwise the active count inflates).
-      srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
-      if (srs.length === 0) {
-        flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1;
-        return;
+  // Active customers over a rolling window of `windowMonths` ending at month m.
+  // windowMonths=3 → the classic "Active 3-mo"; windowMonths=1 → "Active 1-mo".
+  // A customer is active if their NET sales across the window are positive
+  // (returns/credit notes net out). Credited to the SR(s) who actually sold in
+  // the window (+ shared partners; customer master as fallback). Counts are
+  // SUMMED per SR (a shared customer counts once for each of its SRs).
+  const computeActiveByMonth = function (windowMonths) {
+    const out = {};
+    MONTHS.forEach(m => {
+      const periods = [];
+      for (let i = windowMonths - 1; i >= 0; i--) {
+        const prev = m - i;
+        if (prev >= 1) periods.push(202600 + prev);
+        else periods.push(202500 + (12 + prev));
       }
-      custSrsMap[c] = srs;
-      // Counts are SUMMED, not distinct: a customer shared across SRs counts once
-      // for EACH SR (so two SRs sharing the same 3 customers both show 3), and the
-      // FLM total is the sum of its SRs' counts (not a distinct customer count).
-      srs.forEach(sr => {
-        srCount[sr] = (srCount[sr] || 0) + 1;
-        const f = srToFlm[sr];
-        if (f) flmCount[f] = (flmCount[f] || 0) + 1;
+      const custNet = {};
+      periods.forEach(function (p) {
+        const pc = dailyByPeriodCust[p];
+        if (!pc) return;
+        Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
       });
+      const soldSrs = {};
+      periods.forEach(function (p) {
+        const sc = srByPeriodCust[p];
+        if (!sc) return;
+        Object.keys(sc).forEach(function (cc) {
+          if (!soldSrs[cc]) soldSrs[cc] = {};
+          Object.keys(sc[cc]).forEach(function (sr) { soldSrs[cc][sr] = true; });
+        });
+      });
+      const custs = {};
+      Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
+      const flmCount = {}, srCount = {};
+      const custSrsMap = {};
+      Object.keys(custs).forEach(cs => {
+        const c = Number(cs);
+        let srs = [];
+        if (soldSrs[cs]) srs = srs.concat(Object.keys(soldSrs[cs]).map(Number));
+        if (SHARED[c]) srs = srs.concat(SHARED[c].map(r => r.sr));
+        if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
+        srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
+        if (srs.length === 0) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
+        custSrsMap[c] = srs;
+        srs.forEach(sr => {
+          srCount[sr] = (srCount[sr] || 0) + 1;
+          const f = srToFlm[sr];
+          if (f) flmCount[f] = (flmCount[f] || 0) + 1;
+        });
+      });
+      let activeTotalSum = 0;
+      Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
+      out[m] = {
+        total: activeTotalSum,
+        byFlm: flmCount, bySr: srCount,
+        customers: Object.keys(custs).map(Number),
+        custSrs: custSrsMap,
+      };
     });
-    // Overall total = sum of every FLM bucket (= sum of all SR counts + Unassigned),
-    // matching the summed semantics above rather than a distinct customer count.
-    let activeTotalSum = 0;
-    Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
-    activeByMonth[m] = {
-      total: activeTotalSum,
-      byFlm: flmCount, bySr: srCount,
-      customers: Object.keys(custs).map(Number),
-      custSrs: custSrsMap,
-    };
-  });
+    return out;
+  };
+  const activeByMonth  = computeActiveByMonth(3);
+  const active1ByMonth = computeActiveByMonth(1);
 
   const findCol = (obj, names) => {
     for (let i = 0; i < names.length; i++) if (names[i] in obj) return names[i];
@@ -954,6 +955,55 @@ function buildDashboardPayload() {
     });
     activeTargetByMonth[m] = { bySr: bySr, byFlm: byFlm };
   });
+
+  // Active 1-month TARGET — from the 'Target Cus 1month' tab (SR Code / Manager
+  // / month columns like 'Jan-26'). Mirrors the 3-month target above.
+  const activeTarget1ByMonth = {};
+  MONTHS.forEach(m => {
+    const lbl = MONTH_LABELS_SHORT[m-1];
+    const candidates = [
+      lbl + '-26', lbl + '-26 FINAL', lbl + '-26\nFINAL',
+      lbl + ' 2026', lbl + '-2026', lbl + '_Final', lbl,
+    ];
+    const bySr = {}, byFlm = {};
+    ac1Target.forEach(r => {
+      const sr = Number(r['SR Code']);
+      if (!sr) return;
+      const col = findCol(r, candidates);
+      const v = col ? Number(r[col]) || 0 : 0;
+      bySr[sr] = v;
+      const f = normFlm(r['Manager']);
+      if (f) byFlm[f] = (byFlm[f] || 0) + v;
+    });
+    activeTarget1ByMonth[m] = { bySr: bySr, byFlm: byFlm };
+  });
+
+  // L&L — Target-L&L / Actual-L&L tabs (No / FLM / ID / Name/SKU / Team, then
+  // month columns like 'Jul-26 FINAL'). Per SR (ID) and per FLM, by month.
+  const buildLLByMonth = function (rows) {
+    const byMonth = {};
+    MONTHS.forEach(m => {
+      const lbl = MONTH_LABELS_SHORT[m-1];
+      const candidates = [
+        lbl + '-26\nFINAL', lbl + '-26 FINAL', lbl + '-26',
+        lbl + ' 2026', lbl + '-2026', lbl + '_Final', lbl,
+      ];
+      const bySr = {}, byFlm = {};
+      rows.forEach(r => {
+        const sr = Number(r['ID']);
+        if (!sr) return;
+        const col = findCol(r, candidates);
+        const v = col ? Number(r[col]) || 0 : 0;
+        bySr[sr] = (bySr[sr] || 0) + v;
+        const f = normFlm(r['FLM']);
+        if (f) byFlm[f] = (byFlm[f] || 0) + v;
+      });
+      byMonth[m] = { bySr: bySr, byFlm: byFlm };
+    });
+    return byMonth;
+  };
+  const llTargetByMonth = buildLLByMonth(llTarget);
+  const llActualByMonth = buildLLByMonth(llActual);
 
   // =========================================================================
   // === NEW LISTING — Name-based matching (case-insensitive) ===
@@ -1217,6 +1267,10 @@ function buildDashboardPayload() {
     shopByMonth: shopByMonth,
     activeByMonth: activeByMonth,
     activeTargetByMonth: activeTargetByMonth,
+    active1ByMonth: active1ByMonth,
+    activeTarget1ByMonth: activeTarget1ByMonth,
+    llTargetByMonth: llTargetByMonth,
+    llActualByMonth: llActualByMonth,
     newByMonth: newByMonth,
     newTargetByMonth: newTargetByMonth,
     leadTargetPerSr: leadTargetPerSr,

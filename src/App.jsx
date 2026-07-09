@@ -666,6 +666,22 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const leadTotal = C.flmCoverage.reduce((s, r) => s + r.leadT, 0);
   const leadActualTotal = C.flmCoverage.reduce((s, r) => s + r.leadA, 0);
 
+  // Totals for the new Active-1M and L&L tabs (respect the FLM / SR filters).
+  const flmScope = flm === "All" ? RAW.flms : [flm];
+  const sumScope = (o) => {
+    if (!o) return 0;
+    if (srFilter !== "All") return (o.bySr && o.bySr[Number(srFilter)]) || 0;
+    return flmScope.reduce((s, f) => s + ((o.byFlm && o.byFlm[f]) || 0), 0);
+  };
+  const active1AM = (RAW.active1ByMonth && RAW.active1ByMonth[month]) || { bySr:{}, byFlm:{}, total:0 };
+  const active1TM = (RAW.activeTarget1ByMonth && RAW.activeTarget1ByMonth[month]) || { bySr:{}, byFlm:{} };
+  const active1Total = (flm === "All" && srFilter === "All") ? (active1AM.total || 0) : sumScope(active1AM);
+  const active1TotalT = sumScope(active1TM);
+  const llTM = (RAW.llTargetByMonth && RAW.llTargetByMonth[month]) || { bySr:{}, byFlm:{} };
+  const llAM = (RAW.llActualByMonth && RAW.llActualByMonth[month]) || { bySr:{}, byFlm:{} };
+  const llTotalT = sumScope(llTM);
+  const llActualTotal = sumScope(llAM);
+
   // SR options (filtered by FLM)
   const srOptions = (flm === "All" ? RAW.srs : RAW.srs.filter(s => s.flm === flm))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -708,7 +724,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R10 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R11 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -831,8 +847,10 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         <Sep />
         <TabBtn label="Shop Around" v="shop" cur={tab} on={setTab} />
         <TabBtn label="Active Cust." v="active" cur={tab} on={setTab} />
+        <TabBtn label="Active 1M" v="active1" cur={tab} on={setTab} />
         <TabBtn label="New Listing" v="new" cur={tab} on={setTab} />
         <TabBtn label="NU" v="leads" cur={tab} on={setTab} />
+        <TabBtn label="L&L" v="ll" cur={tab} on={setTab} />
           <TabBtn label="📈 Trend" v="trend" cur={tab} on={setTab} />
           <TabBtn label="📅 Cust Sales" v="custsales" cur={tab} on={setTab} />
         {user.role === "Admin" && <>
@@ -2265,6 +2283,84 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         );
       })()}
 
+      {tab === "active1" && (() => {
+        const buildYtd = (actualByMonth, targetByMonth, fname, sheet) => {
+          const latest = latestDataMonth(RAW);
+          const months = []; for (let m = 1; m <= latest; m++) months.push(m);
+          const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+          const out = srs.map(s => {
+            const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
+            let ytdA = 0, ytdT = 0;
+            months.forEach(m => {
+              const am = (RAW[actualByMonth] && RAW[actualByMonth][m]) ? (RAW[actualByMonth][m].bySr[s.code] || 0) : 0;
+              const tm = (RAW[targetByMonth] && RAW[targetByMonth][m]) ? (RAW[targetByMonth][m].bySr[s.code] || 0) : 0;
+              o[MONTH_NAMES[m-1] + "-" + String(year).slice(2)] = Math.round(am);
+              ytdA += am; ytdT += tm;
+            });
+            o["YTD Actual"] = Math.round(ytdA); o["YTD Target"] = Math.round(ytdT);
+            return o;
+          }).filter(o => o["YTD Actual"] !== 0 || o["YTD Target"] !== 0);
+          exportToExcel(out, fname + "_Jan-" + MONTH_NAMES[latest-1] + "-" + year + ".xlsx", sheet);
+        };
+        return (
+          <>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10}}>
+              <Metric label="Active 1-mo · Actual / Target" value={fmt(active1Total)}
+                actual={fmt(active1TotalT)} pct={pct(active1Total, active1TotalT)} accent="#7c3aed"
+                secondaryLabel="tgt" />
+              <Metric label="Window" value="1 month"
+                actual="Net-positive buyers this month" pct={null} accent="#0ea5e9" />
+              <Metric label="Logic" value="Same as 3-mo"
+                actual="1-month rolling window" pct={null} accent="#6b7280" />
+            </div>
+            <Panel title="Active 1-Month — FLM × SR (expandable)"
+              action={<ExportBtn onClick={() => buildYtd("active1ByMonth", "activeTarget1ByMonth", "Active1M_YTD", "Active 1M YTD")} />}>
+              <KpiMatrix TM={active1TM} AM={active1AM} flm={flm} RAW={RAW}
+                expanded={expanded} setExpanded={setExpanded} keyPrefix="a1" />
+            </Panel>
+          </>
+        );
+      })()}
+
+      {tab === "ll" && (() => {
+        const buildYtd = () => {
+          const latest = latestDataMonth(RAW);
+          const months = []; for (let m = 1; m <= latest; m++) months.push(m);
+          const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+          const out = srs.map(s => {
+            const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
+            let ytdA = 0, ytdT = 0;
+            months.forEach(m => {
+              const am = (RAW.llActualByMonth && RAW.llActualByMonth[m]) ? (RAW.llActualByMonth[m].bySr[s.code] || 0) : 0;
+              const tm = (RAW.llTargetByMonth && RAW.llTargetByMonth[m]) ? (RAW.llTargetByMonth[m].bySr[s.code] || 0) : 0;
+              o[MONTH_NAMES[m-1] + "-" + String(year).slice(2)] = Math.round(am);
+              ytdA += am; ytdT += tm;
+            });
+            o["YTD Actual"] = Math.round(ytdA); o["YTD Target"] = Math.round(ytdT);
+            return o;
+          }).filter(o => o["YTD Actual"] !== 0 || o["YTD Target"] !== 0);
+          exportToExcel(out, `LL_YTD_Jan-${MONTH_NAMES[latest-1]}-${year}.xlsx`, "L&L YTD");
+        };
+        return (
+          <>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:10}}>
+              <Metric label="L&L · Actual / Target" value={fmt(llActualTotal)}
+                actual={fmt(llTotalT)} pct={pct(llActualTotal, llTotalT)} accent="#0d9488"
+                secondaryLabel="tgt" />
+              <Metric label="SRs with target" value={String(Object.keys(llTM.bySr || {}).filter(k => llTM.bySr[k] > 0).length)}
+                actual="from Target-L&L" pct={null} accent="#0ea5e9" />
+              <Metric label="Source" value="Actual-L&L tab"
+                actual="enter monthly actuals" pct={null} accent="#6b7280" />
+            </div>
+            <Panel title="L&L — FLM × SR (expandable)"
+              action={<ExportBtn onClick={buildYtd} />}>
+              <KpiMatrix TM={llTM} AM={llAM} flm={flm} RAW={RAW}
+                expanded={expanded} setExpanded={setExpanded} keyPrefix="ll" />
+            </Panel>
+          </>
+        );
+      })()}
+
       {tab === "trend" && (() => {
         try {
           const TREND_KPIS = [
@@ -3359,6 +3455,66 @@ function Bar2({ pct }) {
         background: pctColor(pct), transition:"width .4s ease",
       }} />
     </div>
+  );
+}
+
+// Reusable FLM → SR target-vs-actual matrix (expand an FLM to see its SRs).
+// TM/AM are { bySr, byFlm } maps for the selected month.
+function KpiMatrix({ TM, AM, flm, RAW, expanded, setExpanded, keyPrefix }) {
+  const tm = TM || { bySr:{}, byFlm:{} }, am = AM || { bySr:{}, byFlm:{} };
+  return (
+    <table style={tblStyle}>
+      <thead><tr style={{background:"#f9fafb"}}>
+        <th style={thStyle}>FLM / SR</th>
+        <th style={thStyleR}>Target</th>
+        <th style={thStyleR}>Actual</th>
+        <th style={thStyleR}>%</th>
+        <th style={thStyle}>Progress</th>
+      </tr></thead>
+      <tbody>
+        {(flm === "All" ? RAW.flms : [flm]).map(f => {
+          const tt = (tm.byFlm && tm.byFlm[f]) || 0;
+          const ta = (am.byFlm && am.byFlm[f]) || 0;
+          const tp = pct(ta, tt);
+          const flmSrs = RAW.srs.filter(s => s.flm === f);
+          const ek = keyPrefix + "_" + f;
+          return (
+            <React.Fragment key={f}>
+              <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer", fontWeight:600}}
+                onClick={() => setExpanded(e => ({ ...e, [ek]: !e[ek] }))}>
+                <td style={tdStyle}>
+                  <span style={{color:"#6b7280", marginRight:6}}>{expanded[ek] ? "▾" : "▸"}</span>
+                  {f}
+                  <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{flmSrs.length} SRs</span>
+                </td>
+                <td style={tdStyleR}>{tt}</td>
+                <td style={tdStyleR}>{ta}</td>
+                <td style={{...tdStyleR, color:pctColor(tp), fontWeight:700}}>{tt > 0 ? tp.toFixed(0) + "%" : "—"}</td>
+                <td style={tdStyle}><Bar2 pct={tp} /></td>
+              </tr>
+              {expanded[ek] && flmSrs.map(s => {
+                const t = (tm.bySr && tm.bySr[s.code]) || 0;
+                const a = (am.bySr && am.bySr[s.code]) || 0;
+                if (t === 0 && a === 0) return null;
+                const sp = pct(a, t);
+                return (
+                  <tr key={s.code} style={{borderTop:"1px solid #f3f4f6"}}>
+                    <td style={{...tdStyle, paddingLeft:32, fontSize:11.5}}>
+                      <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginRight:6}}>{s.code}</span>
+                      {s.name}
+                    </td>
+                    <td style={tdStyleR}>{t}</td>
+                    <td style={tdStyleR}>{a}</td>
+                    <td style={{...tdStyleR, color:pctColor(sp), fontWeight:600}}>{t > 0 ? sp.toFixed(0) + "%" : "—"}</td>
+                    <td style={tdStyle}><Bar2 pct={sp} /></td>
+                  </tr>
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
