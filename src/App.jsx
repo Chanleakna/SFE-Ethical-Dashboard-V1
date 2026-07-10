@@ -724,7 +724,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R11 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R12 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -2318,6 +2318,54 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               <KpiMatrix TM={active1TM} AM={active1AM} flm={flm} RAW={RAW}
                 expanded={expanded} setExpanded={setExpanded} keyPrefix="a1" />
             </Panel>
+            {(() => {
+              // Which outlets make up each SR's number — click an SR to see the names.
+              const custSrs = active1AM.custSrs || {};
+              const custByCode = {}; (RAW.customers || []).forEach(c => { custByCode[c.c] = c; });
+              const bySR = {};
+              Object.keys(custSrs).forEach(cc => (custSrs[cc] || []).forEach(sr => { (bySR[sr] = bySR[sr] || []).push(Number(cc)); }));
+              const srs = RAW.srs
+                .filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)))
+                .filter(s => (bySR[s.code] || []).length);
+              return (
+                <Panel title={"Active 1-Month — outlets per SR (" + MONTH_NAMES[month-1] + "-" + String(year).slice(2) + ") — click an SR"}>
+                  <table style={tblStyle}>
+                    <thead><tr style={{background:"#f9fafb"}}>
+                      <th style={thStyle}>SR / Outlet</th><th style={thStyleR}>Active outlets</th>
+                    </tr></thead>
+                    <tbody>
+                      {srs.map(s => {
+                        const list = (bySR[s.code] || []).slice().sort((a,b) => a-b);
+                        const ek = "a1c_" + s.code;
+                        return (
+                          <React.Fragment key={s.code}>
+                            <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer", fontWeight:600}}
+                              onClick={() => setExpanded(e => ({ ...e, [ek]: !e[ek] }))}>
+                              <td style={tdStyle}>
+                                <span style={{color:"#6b7280", marginRight:6}}>{expanded[ek] ? "▾" : "▸"}</span>
+                                <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginRight:6}}>{s.code}</span>
+                                {s.name}
+                                <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{s.flm}</span>
+                              </td>
+                              <td style={tdStyleR}>{list.length}</td>
+                            </tr>
+                            {expanded[ek] && list.map(cc => (
+                              <tr key={cc} style={{borderTop:"1px solid #f3f4f6"}}>
+                                <td style={{...tdStyle, paddingLeft:32, fontSize:11.5}}>
+                                  {(custByCode[cc] && custByCode[cc].n) || ("Customer " + cc)}
+                                  <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginLeft:6}}>{cc}</span>
+                                </td>
+                                <td style={tdStyleR}></td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </Panel>
+              );
+            })()}
           </>
         );
       })()}
