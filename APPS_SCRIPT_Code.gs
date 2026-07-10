@@ -681,6 +681,23 @@ function buildDashboardPayload() {
     }
   });
 
+  // Customers to NEVER count as an active outlet (distributors / wholesale
+  // accounts booked under one name across many SRs). Their sales still count as
+  // revenue; they just don't inflate the Active customer counts. Match by name
+  // (case-insensitive substring). Add more names here as needed.
+  const EXCLUDE_CUSTOMER_NAMES = ['fantree'];
+  const EXCLUDED_CUST_CODES = {};
+  daily.forEach(r => {
+    const nm = String(r['Customer Name'] || '').trim().toLowerCase();
+    if (!nm) return;
+    for (let i = 0; i < EXCLUDE_CUSTOMER_NAMES.length; i++) {
+      if (nm.indexOf(EXCLUDE_CUSTOMER_NAMES[i]) >= 0) {
+        const c = Number(r['Customer Code']);
+        if (c) EXCLUDED_CUST_CODES[c] = true;
+      }
+    }
+  });
+
   const allocated = [];
   daily.forEach(r => {
     // === FIX: case-insensitive Ethical filter ===
@@ -912,7 +929,7 @@ function buildDashboardPayload() {
         });
       });
       const custs = {};
-      Object.keys(custNet).forEach(c => { if (custNet[c] > 0) custs[c] = true; });
+      Object.keys(custNet).forEach(c => { if (custNet[c] > 0 && !EXCLUDED_CUST_CODES[c]) custs[c] = true; });
       const flmCount = {}, srCount = {};
       const custSrsMap = {};
       Object.keys(custs).forEach(cs => {
