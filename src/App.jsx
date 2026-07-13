@@ -724,7 +724,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R12 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R13 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1021,6 +1021,77 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               MND = ENS PWD · ENS RPB · GLU PWD · GLU RPB · PRO &nbsp;·&nbsp; PND = SM · SIM · STC · PED PWD · PED RPB
             </div>
           </Panel>
+
+          {(() => {
+            // FLM × coverage KPIs (Shop Around, Active 1M, NU, L&L) — Target/Actual/%.
+            const kc = (t, a) => {
+              const p = pct(a, t);
+              return (<React.Fragment>
+                <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(t)}</td>
+                <td style={tdStyleR}>{fmt(a)}</td>
+                <td style={{...tdStyleR, color:pctColor(p), fontWeight:600}}>{t > 0 ? p.toFixed(0)+"%" : "—"}</td>
+              </React.Fragment>);
+            };
+            const rows = (flm === "All" ? RAW.flms : [flm]).map(f => {
+              const cov = C.flmCoverage.find(c => c.flm === f) || { shopT:0, shopA:0, leadT:0, leadA:0 };
+              return {
+                flm: f,
+                shopT: cov.shopT || 0, shopA: cov.shopA || 0,
+                a1T: active1TM.byFlm[f] || 0, a1A: active1AM.byFlm[f] || 0,
+                nuT: cov.leadT || 0, nuA: cov.leadA || 0,
+                llT: llTM.byFlm[f] || 0, llA: llAM.byFlm[f] || 0,
+              };
+            });
+            const tot = rows.reduce((s, r) => ({
+              shopT:s.shopT+r.shopT, shopA:s.shopA+r.shopA, a1T:s.a1T+r.a1T, a1A:s.a1A+r.a1A,
+              nuT:s.nuT+r.nuT, nuA:s.nuA+r.nuA, llT:s.llT+r.llT, llA:s.llA+r.llA,
+            }), {shopT:0,shopA:0,a1T:0,a1A:0,nuT:0,nuA:0,llT:0,llA:0});
+            const grpTh = { ...thStyleR, borderLeft:"1px solid #e5e7eb", textAlign:"center" };
+            return (
+              <Panel title={"FLM × Coverage KPIs — Shop Around · Active 1M · NU · L&L (" + MONTH_NAMES[month-1] + "-" + String(year).slice(2) + ")"}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={tblStyle}>
+                    <thead>
+                      <tr style={{background:"#f9fafb"}}>
+                        <th style={thStyle} rowSpan={2}>FLM</th>
+                        <th style={grpTh} colSpan={3}>Shop Around</th>
+                        <th style={grpTh} colSpan={3}>Active 1M</th>
+                        <th style={grpTh} colSpan={3}>NU</th>
+                        <th style={grpTh} colSpan={3}>L&amp;L</th>
+                      </tr>
+                      <tr style={{background:"#f9fafb"}}>
+                        {[0,1,2,3].map(i => (
+                          <React.Fragment key={i}>
+                            <th style={{...thStyleR, borderLeft:"1px solid #e5e7eb", fontSize:10}}>Tgt</th>
+                            <th style={{...thStyleR, fontSize:10}}>Act</th>
+                            <th style={{...thStyleR, fontSize:10}}>%</th>
+                          </React.Fragment>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.flm} style={{borderTop:"1px solid #e5e7eb"}}>
+                          <td style={{...tdStyle, fontWeight:600}}>{r.flm}</td>
+                          {kc(r.shopT, r.shopA)}
+                          {kc(r.a1T, r.a1A)}
+                          {kc(r.nuT, r.nuA)}
+                          {kc(r.llT, r.llA)}
+                        </tr>
+                      ))}
+                      <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
+                        <td style={tdStyle}>TOTAL</td>
+                        {kc(tot.shopT, tot.shopA)}
+                        {kc(tot.a1T, tot.a1A)}
+                        {kc(tot.nuT, tot.nuA)}
+                        {kc(tot.llT, tot.llA)}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            );
+          })()}
 
           <CoverageRanking
             title="FLM Coverage Rating (Shop Around · Active 3-mo · New Listing · NU)"
