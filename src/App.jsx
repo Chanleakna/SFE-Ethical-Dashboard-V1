@@ -724,7 +724,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R13 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R14 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1032,10 +1032,24 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 <td style={{...tdStyleR, color:pctColor(p), fontWeight:600}}>{t > 0 ? p.toFixed(0)+"%" : "—"}</td>
               </React.Fragment>);
             };
+            const scMap = {}; C.srScorecards.forEach(c => { scMap[c.code] = c; });
+            const srCov = (s) => {
+              const c = scMap[s.code] || {};
+              return {
+                code: s.code, name: s.name,
+                shopT: c.shopTarget || 0, shopA: c.shopActual || 0,
+                a1T: active1TM.bySr[s.code] || 0, a1A: active1AM.bySr[s.code] || 0,
+                nuT: c.leadTarget || 0, nuA: c.leadActual || 0,
+                llT: llTM.bySr[s.code] || 0, llA: llAM.bySr[s.code] || 0,
+              };
+            };
             const rows = (flm === "All" ? RAW.flms : [flm]).map(f => {
               const cov = C.flmCoverage.find(c => c.flm === f) || { shopT:0, shopA:0, leadT:0, leadA:0 };
+              const srs = RAW.srs
+                .filter(s => s.flm === f && (srFilter === "All" || s.code === Number(srFilter)))
+                .map(srCov);
               return {
-                flm: f,
+                flm: f, srs: srs,
                 shopT: cov.shopT || 0, shopA: cov.shopA || 0,
                 a1T: active1TM.byFlm[f] || 0, a1A: active1AM.byFlm[f] || 0,
                 nuT: cov.leadT || 0, nuA: cov.leadA || 0,
@@ -1070,15 +1084,37 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map(r => (
-                        <tr key={r.flm} style={{borderTop:"1px solid #e5e7eb"}}>
-                          <td style={{...tdStyle, fontWeight:600}}>{r.flm}</td>
-                          {kc(r.shopT, r.shopA)}
-                          {kc(r.a1T, r.a1A)}
-                          {kc(r.nuT, r.nuA)}
-                          {kc(r.llT, r.llA)}
-                        </tr>
-                      ))}
+                      {rows.map(r => {
+                        const ek = "cov_" + r.flm;
+                        return (
+                        <React.Fragment key={r.flm}>
+                          <tr style={{borderTop:"1px solid #e5e7eb", background:"#fafbfc", cursor:"pointer", fontWeight:600}}
+                            onClick={() => setExpanded(e => ({ ...e, [ek]: !e[ek] }))}>
+                            <td style={tdStyle}>
+                              <span style={{display:"inline-block", width:14, color:"#6b7280"}}>{expanded[ek] ? "▾" : "▸"}</span>
+                              {r.flm}
+                              <span style={{fontSize:10, color:"#9ca3af", marginLeft:6, fontWeight:400}}>{r.srs.length} SRs</span>
+                            </td>
+                            {kc(r.shopT, r.shopA)}
+                            {kc(r.a1T, r.a1A)}
+                            {kc(r.nuT, r.nuA)}
+                            {kc(r.llT, r.llA)}
+                          </tr>
+                          {expanded[ek] && r.srs.map(s => (
+                            <tr key={s.code} style={{borderTop:"1px solid #f3f4f6", background:"#fff"}}>
+                              <td style={{...tdStyle, paddingLeft:32, fontSize:11}}>
+                                <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:10, marginRight:6}}>{s.code}</span>
+                                {s.name}
+                              </td>
+                              {kc(s.shopT, s.shopA)}
+                              {kc(s.a1T, s.a1A)}
+                              {kc(s.nuT, s.nuA)}
+                              {kc(s.llT, s.llA)}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                        );
+                      })}
                       <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
                         <td style={tdStyle}>TOTAL</td>
                         {kc(tot.shopT, tot.shopA)}
