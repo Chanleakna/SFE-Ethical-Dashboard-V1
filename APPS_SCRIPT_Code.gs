@@ -825,7 +825,7 @@ function buildDashboardPayload() {
   //    Ethical), so Shop Around must count their sales regardless of department.
   const dailyByPeriodCust = {};
   const shopByPeriodCust = {};
-  const srByPeriodCust = {};  // period -> cust -> { srCode: true } — who actually sold (Ethical)
+  const srByPeriodCust = {};  // period -> cust -> { srCode: salesToThisCust } — who sold & how much (Ethical)
   daily.forEach(function (r) {
     const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
@@ -837,14 +837,14 @@ function buildDashboardPayload() {
     if (!isEthical(r['Dep'])) return;  // everything below is Ethical-only
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
     dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + sales;
-    // Track which SR actually sold to this customer (from the daily SR column),
-    // so Active can credit the selling SR — matching how Sales attributes.
+    // Track how much each SR sold to this customer, so Active can attribute the
+    // outlet to the SR who sold it the MOST (one outlet counts once).
     const srName = firstSr(r);
     const srCode = srName ? srMatch[srName] : null;
     if (srCode) {
       if (!srByPeriodCust[period]) srByPeriodCust[period] = {};
       if (!srByPeriodCust[period][c]) srByPeriodCust[period][c] = {};
-      srByPeriodCust[period][c][srCode] = true;
+      srByPeriodCust[period][c][srCode] = (srByPeriodCust[period][c][srCode] || 0) + sales;
     }
   });
 
@@ -932,13 +932,15 @@ function buildDashboardPayload() {
         if (!pc) return;
         Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
       });
-      const soldSrs = {};
+      // Total sales each SR made to each customer across the window (to find the
+      // SR who sold the most = the outlet's "owner").
+      const srAmt = {};
       periods.forEach(function (p) {
         const sc = srByPeriodCust[p];
         if (!sc) return;
         Object.keys(sc).forEach(function (cc) {
-          if (!soldSrs[cc]) soldSrs[cc] = {};
-          Object.keys(sc[cc]).forEach(function (sr) { soldSrs[cc][sr] = true; });
+          if (!srAmt[cc]) srAmt[cc] = {};
+          Object.keys(sc[cc]).forEach(function (sr) { srAmt[cc][sr] = (srAmt[cc][sr] || 0) + sc[cc][sr]; });
         });
       });
       const custs = {};
@@ -947,18 +949,19 @@ function buildDashboardPayload() {
       const custSrsMap = {};
       Object.keys(custs).forEach(cs => {
         const c = Number(cs);
-        let srs = [];
-        if (soldSrs[cs]) srs = srs.concat(Object.keys(soldSrs[cs]).map(Number));
-        if (SHARED[c]) srs = srs.concat(SHARED[c].map(r => r.sr));
-        if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
-        srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
-        if (srs.length === 0) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
-        custSrsMap[c] = srs;
-        srs.forEach(sr => {
-          srCount[sr] = (srCount[sr] || 0) + 1;
-          const f = srToFlm[sr];
-          if (f) flmCount[f] = (flmCount[f] || 0) + 1;
-        });
+        // Attribute the outlet to ONE SR — the one who sold it the most this
+        // window — so every active outlet counts exactly once (distinct). Fall
+        // back to a shared partner, then the customer master.
+        let primary = null, best = -Infinity;
+        const amt = srAmt[cs] || {};
+        Object.keys(amt).forEach(sr => { if (amt[sr] > best) { best = amt[sr]; primary = Number(sr); } });
+        if (primary == null && SHARED[c] && SHARED[c].length) primary = SHARED[c][0].sr;
+        if (primary == null && custDict[c] && custDict[c].sr) primary = custDict[c].sr;
+        if (primary == null) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
+        custSrsMap[c] = [primary];
+        srCount[primary] = (srCount[primary] || 0) + 1;
+        const f = srToFlm[primary];
+        if (f) flmCount[f] = (flmCount[f] || 0) + 1;
       });
       let activeTotalSum = 0;
       Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
