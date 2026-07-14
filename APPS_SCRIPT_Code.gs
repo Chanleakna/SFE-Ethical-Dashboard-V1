@@ -917,7 +917,11 @@ function buildDashboardPayload() {
   // (returns/credit notes net out). Credited to the SR(s) who actually sold in
   // the window (+ shared partners; customer master as fallback). Counts are
   // SUMMED per SR (a shared customer counts once for each of its SRs).
-  const computeActiveByMonth = function (windowMonths) {
+  // mode 'summed'  → an outlet counts for EVERY SR who sold it (+ shared); the
+  //                  classic behavior used by Active 3-mo (kept as-is).
+  // mode 'distinct'→ an outlet counts ONCE, for the SR who sold it the most;
+  //                  used by Active 1-mo so the total = distinct outlet count.
+  const computeActiveByMonth = function (windowMonths, mode) {
     const out = {};
     MONTHS.forEach(m => {
       const periods = [];
@@ -949,19 +953,30 @@ function buildDashboardPayload() {
       const custSrsMap = {};
       Object.keys(custs).forEach(cs => {
         const c = Number(cs);
-        // Attribute the outlet to ONE SR — the one who sold it the most this
-        // window — so every active outlet counts exactly once (distinct). Fall
-        // back to a shared partner, then the customer master.
-        let primary = null, best = -Infinity;
-        const amt = srAmt[cs] || {};
-        Object.keys(amt).forEach(sr => { if (amt[sr] > best) { best = amt[sr]; primary = Number(sr); } });
-        if (primary == null && SHARED[c] && SHARED[c].length) primary = SHARED[c][0].sr;
-        if (primary == null && custDict[c] && custDict[c].sr) primary = custDict[c].sr;
-        if (primary == null) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
-        custSrsMap[c] = [primary];
-        srCount[primary] = (srCount[primary] || 0) + 1;
-        const f = srToFlm[primary];
-        if (f) flmCount[f] = (flmCount[f] || 0) + 1;
+        let srs;
+        if (mode === 'distinct') {
+          // One SR = the top seller this window, so the outlet counts once.
+          let primary = null, best = -Infinity;
+          const amt = srAmt[cs] || {};
+          Object.keys(amt).forEach(sr => { if (amt[sr] > best) { best = amt[sr]; primary = Number(sr); } });
+          if (primary == null && SHARED[c] && SHARED[c].length) primary = SHARED[c][0].sr;
+          if (primary == null && custDict[c] && custDict[c].sr) primary = custDict[c].sr;
+          srs = primary == null ? [] : [primary];
+        } else {
+          // Summed: every SR who sold to the outlet + shared partners (master as fallback).
+          srs = [];
+          if (srAmt[cs]) srs = srs.concat(Object.keys(srAmt[cs]).map(Number));
+          if (SHARED[c]) srs = srs.concat(SHARED[c].map(r => r.sr));
+          if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
+          srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
+        }
+        if (srs.length === 0) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
+        custSrsMap[c] = srs;
+        srs.forEach(sr => {
+          srCount[sr] = (srCount[sr] || 0) + 1;
+          const f = srToFlm[sr];
+          if (f) flmCount[f] = (flmCount[f] || 0) + 1;
+        });
       });
       let activeTotalSum = 0;
       Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
@@ -974,8 +989,8 @@ function buildDashboardPayload() {
     });
     return out;
   };
-  const activeByMonth  = computeActiveByMonth(3);
-  const active1ByMonth = computeActiveByMonth(1);
+  const activeByMonth  = computeActiveByMonth(3, 'summed');   // 3-mo: unchanged from before
+  const active1ByMonth = computeActiveByMonth(1, 'distinct'); // 1-mo: each outlet counts once
 
   const findCol = (obj, names) => {
     for (let i = 0; i < names.length; i++) if (names[i] in obj) return names[i];
