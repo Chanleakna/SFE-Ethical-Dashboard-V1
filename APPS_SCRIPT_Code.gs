@@ -33,6 +33,7 @@ const TAB_NAMES = {
   activeTarget1:'Target Cus 1month',
   llTarget:     'Target-L&L',
   llActual:     'Actual-L&L',
+  excludeCustomers: 'Exclude_Customers',
   newTarget:    'Target - New Listing',
   leadTarget:   'Target-Lead',
   leadActual:   'Actual-Lead',
@@ -682,11 +683,17 @@ function buildDashboardPayload() {
   });
 
   // Customers to NEVER count as an active outlet (distributors / wholesale
-  // accounts booked under one name across many SRs). Their sales still count as
-  // revenue; they just don't inflate the Active customer counts. Match by name
-  // (case-insensitive substring). Add more names here as needed.
+  // accounts — their sales still count as revenue, they just don't inflate the
+  // Active outlet counts). Three sources, so you can maintain it yourself:
+  //   1. EXCLUDE_CUSTOMER_NAMES — name substring (case-insensitive).
+  //   2. EXCLUDE_CUSTOMER_CODES — specific codes we know are distributors.
+  //   3. An optional 'Exclude_Customers' sheet tab (a 'Customer Code' column) —
+  //      add a distributor's code there and it's excluded on the next refresh,
+  //      no code change needed. Copy the code straight from the drill-down list.
   const EXCLUDE_CUSTOMER_NAMES = ['fantree'];
+  const EXCLUDE_CUSTOMER_CODES = [281005657]; // D F I Lucky Private Limited (distributor)
   const EXCLUDED_CUST_CODES = {};
+  EXCLUDE_CUSTOMER_CODES.forEach(function (c) { if (c) EXCLUDED_CUST_CODES[c] = true; });
   daily.forEach(r => {
     const nm = String(r['Customer Name'] || '').trim().toLowerCase();
     if (!nm) return;
@@ -697,6 +704,12 @@ function buildDashboardPayload() {
       }
     }
   });
+  try {
+    readSheet(imsSS, TAB_NAMES.excludeCustomers).forEach(function (r) {
+      const c = Number(r['Customer Code'] || r['Code'] || r['code']);
+      if (c) EXCLUDED_CUST_CODES[c] = true;
+    });
+  } catch (e) { /* tab is optional */ }
 
   const allocated = [];
   daily.forEach(r => {
