@@ -120,7 +120,9 @@ const latestDataMonth = (raw) => {
 const uniqArr = (a) => a.filter((v, i) => a.indexOf(v) === i);
 // Build a "by SR → Customer, one column per month Jan→latest + YTD Total" export.
 // recordsByMonth(m) returns an array of { sr, c, cn?, v }; values are summed per (sr, c, month).
-function ytdCustomerExport(raw, year, flm, srFilter, recordsByMonth, filename, sheet) {
+function ytdCustomerExport(raw, year, flmSel, srSel, recordsByMonth, filename, sheet) {
+  const fMatch = (f) => !flmSel.length || flmSel.indexOf(f) >= 0;
+  const sMatch = (code) => !srSel.length || srSel.indexOf(Number(code)) >= 0;
   const latest = latestDataMonth(raw);
   const months = []; for (let m = 1; m <= latest; m++) months.push(m);
   const srName = {}, srFlm = {};
@@ -139,8 +141,8 @@ function ytdCustomerExport(raw, year, flm, srFilter, recordsByMonth, filename, s
     let ytd = 0; months.forEach(m => { ytd += (data[key].vals[m] || 0); });
     return { sr, c, cn: data[key].cn || custName[c] || "", flm: srFlm[sr] || "—", srNm: srName[sr] || ("SR " + sr), vals: data[key].vals, ytd };
   })
-    .filter(r => flm === "All" || r.flm === flm)
-    .filter(r => srFilter === "All" || r.sr === Number(srFilter))
+    .filter(r => fMatch(r.flm))
+    .filter(r => sMatch(r.sr))
     .sort((a, b) => (a.sr - b.sr) || (b.ytd - a.ytd));
   const out = list.map(r => {
     const o = { "FLM": r.flm, "SR Code": r.sr, "SR Name": r.srNm, "Customer Code": r.c, "Customer Name": r.cn };
@@ -440,10 +442,16 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   // opens (per request), so today's month is always the first thing shown.
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
-  const [flm, setFlm] = useState(user.role === "FLM" ? user.flm : "All");
-  const [srFilter, setSrFilter] = useState("All");
-  const [custFilter, setCustFilter] = useState("All");
+  // Multi-select filters — each is an array of selected values; [] means "All".
+  const [flmSel, setFlmSel] = useState(user.role === "FLM" ? [user.flm] : []);
+  const [srSel, setSrSel] = useState([]);
+  const [custSel, setCustSel] = useState([]);
   const [custSearch, setCustSearch] = useState("");
+  const allFlm = flmSel.length === 0, allSr = srSel.length === 0, allCust = custSel.length === 0;
+  const flmMatch = (f) => allFlm || flmSel.indexOf(f) >= 0;
+  const srMatch = (code) => allSr || srSel.indexOf(Number(code)) >= 0;
+  const custMatch = (code) => allCust || custSel.indexOf(Number(code)) >= 0;
+  const flmList = allFlm ? (RAW.flms || []) : flmSel;
   const [lapseFilter, setLapseFilter] = useState("all"); // Customer Sales tab: all / 3 / 6 / 12
   const [custSortKey, setCustSortKey] = useState("total"); // Customer Sales sort column
   const [custSortDir, setCustSortDir] = useState("desc");
@@ -481,20 +489,20 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
     return () => clearInterval(id);
   }, [auto]);
 
-  // Reset SR filter when FLM changes
+  // Drop any selected SRs that aren't in the selected FLM(s) when FLM changes.
   useEffect(() => {
-    if (flm === "All") setSrFilter("All");
-    else if (srFilter !== "All") {
-      const sr = RAW.srs.find(s => s.code === Number(srFilter));
-      if (!sr || sr.flm !== flm) setSrFilter("All");
-    }
-  }, [flm]);
+    if (allFlm) return;
+    setSrSel(sel => sel.filter(code => {
+      const sr = RAW.srs.find(s => s.code === Number(code));
+      return sr && flmSel.indexOf(sr.flm) >= 0;
+    }));
+  }, [flmSel]);
 
   const C = useMemo(() => {
     // === Filtered SR set ===
     let srs = RAW.srs;
-    if (flm !== "All") srs = srs.filter(s => s.flm === flm);
-    if (srFilter !== "All") srs = srs.filter(s => s.code === Number(srFilter));
+    if (!allFlm) srs = srs.filter(s => flmMatch(s.flm));
+    if (!allSr) srs = srs.filter(s => srMatch(s.code));
     const srSet = new Set(srs.map(s => s.code));
 
     // === Target & actual for selected month ===
@@ -579,17 +587,17 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
     const sbm = (RAW.salesByMonth && RAW.salesByMonth[month]) || null;
     let salesActualFull = 0;
     if (sbm) {
-      if (flm === "All" && srFilter === "All") salesActualFull = sbm.total;
+      if (allFlm && allSr) salesActualFull = sbm.total;
       else srs.forEach(s => { salesActualFull += (sbm.bySr[s.code] || 0); });
     } else {
       salesActualFull = totalActual; // fallback before backend redeploy
     }
 
     // === FLM-level rollup with SR list nested ===
-    const flmList = (flm === "All" ? RAW.flms : [flm]);
+    const flmList = (flmList);
     const flmRollup = flmList.map(f => {
       const flmSrs = RAW.srs.filter(s => s.flm === f &&
-        (srFilter === "All" || s.code === Number(srFilter)));
+        (srMatch(s.code)));
       let t = 0, a = 0;
       flmSrs.forEach(s => {
         KPI_DEFS.forEach(k => {
@@ -605,9 +613,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
     // === Coverage rollups ===
     const shopItems = (RAW.shopByMonth[month] || []).filter(x =>
-      (flm === "All" || x.f === flm) &&
-      (srFilter === "All" || x.sr === Number(srFilter)) &&
-      (custFilter === "All" || x.c === Number(custFilter))
+      (flmMatch(x.f)) &&
+      (srMatch(x.sr)) &&
+      (custMatch(x.c))
     );
 
     // FLM-level coverage
@@ -651,11 +659,11 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       flmRollup, flmCoverage, shopItems,
       flmDivision, divisionTotals,
     };
-  }, [tick, year, month, flm, srFilter, custFilter]);
+  }, [tick, year, month, flmSel, srSel, custSel]);
 
   const overallPct = pct(C.totalActual, C.totalTarget);
   const salesPct = pct(C.salesActualFull, C.totalTarget);
-  const activeTotal = (flm === "All" && srFilter === "All")
+  const activeTotal = (allFlm && allSr)
     ? RAW.activeByMonth[month]?.total
     : C.flmCoverage.reduce((s, r) => s + r.activeA, 0);
   const activeTotalT = C.flmCoverage.reduce((s, r) => s + r.activeT, 0);
@@ -667,15 +675,15 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const leadActualTotal = C.flmCoverage.reduce((s, r) => s + r.leadA, 0);
 
   // Totals for the new Active-1M and L&L tabs (respect the FLM / SR filters).
-  const flmScope = flm === "All" ? RAW.flms : [flm];
+  const flmScope = flmList;
   const sumScope = (o) => {
     if (!o) return 0;
-    if (srFilter !== "All") return (o.bySr && o.bySr[Number(srFilter)]) || 0;
+    if (!allSr) return srSel.reduce((s, code) => s + ((o.bySr && o.bySr[Number(code)]) || 0), 0);
     return flmScope.reduce((s, f) => s + ((o.byFlm && o.byFlm[f]) || 0), 0);
   };
   const active1AM = (RAW.active1ByMonth && RAW.active1ByMonth[month]) || { bySr:{}, byFlm:{}, total:0 };
   const active1TM = (RAW.activeTarget1ByMonth && RAW.activeTarget1ByMonth[month]) || { bySr:{}, byFlm:{} };
-  const active1Total = (flm === "All" && srFilter === "All") ? (active1AM.total || 0) : sumScope(active1AM);
+  const active1Total = (allFlm && allSr) ? (active1AM.total || 0) : sumScope(active1AM);
   const active1TotalT = sumScope(active1TM);
   const llTM = (RAW.llTargetByMonth && RAW.llTargetByMonth[month]) || { bySr:{}, byFlm:{} };
   const llAM = (RAW.llActualByMonth && RAW.llActualByMonth[month]) || { bySr:{}, byFlm:{} };
@@ -683,20 +691,20 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const llActualTotal = sumScope(llAM);
 
   // SR options (filtered by FLM)
-  const srOptions = (flm === "All" ? RAW.srs : RAW.srs.filter(s => s.flm === flm))
+  const srOptions = (allFlm ? RAW.srs : RAW.srs.filter(s => flmMatch(s.flm)))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // Customer search filter
   const filteredCustomers = useMemo(() => {
     let custs = RAW.customers || [];
-    if (flm !== "All") custs = custs.filter(c => c.f === flm);
-    if (srFilter !== "All") custs = custs.filter(c => c.sr === Number(srFilter));
+    if (!allFlm) custs = custs.filter(c => flmMatch(c.f));
+    if (!allSr) custs = custs.filter(c => srMatch(c.sr));
     if (custSearch) {
       const q = custSearch.toLowerCase();
       custs = custs.filter(c => String(c.c).includes(q) || String(c.n || "").toLowerCase().includes(q));
     }
     return custs.slice(0, 100); // cap for performance
-  }, [flm, srFilter, custSearch]);
+  }, [flmSel, srSel, custSearch]);
 
   return (
     <div style={{
@@ -724,7 +732,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R14 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R15 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -778,34 +786,20 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
           </select>
         </FilterField>
         <FilterField label="FLM">
-          <select value={flm}
-            onChange={e => setFlm(e.target.value)}
-            disabled={user.role === "FLM"}
-            style={{
-              ...selectStyle,
-              background: user.role === "FLM" ? "#f3f4f6" : "#fff",
-              cursor: user.role === "FLM" ? "not-allowed" : "pointer",
-              color: user.role === "FLM" ? "#6b7280" : "#111827",
-            }}>
-            {user.role !== "FLM" && <option>All</option>}
-            {RAW.flms
-              .filter(f => user.role !== "FLM" || f === user.flm)
-              .map(f => <option key={f}>{f}</option>)}
-          </select>
+          <MultiSelect
+            options={RAW.flms.filter(f => user.role !== "FLM" || f === user.flm).map(f => ({ value: f, label: f }))}
+            selected={flmSel} onChange={setFlmSel}
+            disabled={user.role === "FLM"} allLabel="All FLMs" />
         </FilterField>
         <FilterField label="SR">
-          <select value={srFilter} onChange={e => setSrFilter(e.target.value)} style={selectStyle}>
-            <option value="All">All</option>
-            {srOptions.map(s =>
-              <option key={s.code} value={s.code}>{s.name}</option>)}
-          </select>
+          <MultiSelect
+            options={srOptions.map(s => ({ value: s.code, label: s.name }))}
+            selected={srSel} onChange={setSrSel} allLabel="All SRs" />
         </FilterField>
         <FilterField label="Customer">
-          <select value={custFilter} onChange={e => setCustFilter(e.target.value)} style={selectStyle}>
-            <option value="All">All ({filteredCustomers.length})</option>
-            {filteredCustomers.map(c =>
-              <option key={c.c} value={c.c}>{c.c} — {String(c.n || "").substring(0, 30)}</option>)}
-          </select>
+          <MultiSelect
+            options={filteredCustomers.map(c => ({ value: c.c, label: c.c + " — " + String(c.n || "").substring(0, 24) }))}
+            selected={custSel} onChange={setCustSel} allLabel={"All (" + filteredCustomers.length + ")"} searchable />
         </FilterField>
       </div>
 
@@ -898,8 +892,8 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 const vals = data[key]; let ytd = 0; months.forEach(m => { ytd += (vals[m] || 0); });
                 return { sr, c, flm: srFlm[sr] || "—", srNm: srName[sr] || ("SR " + sr), vals, ytd };
               })
-                .filter(r => flm === "All" || r.flm === flm)
-                .filter(r => srFilter === "All" || r.sr === Number(srFilter))
+                .filter(r => flmMatch(r.flm))
+                .filter(r => allSr || srMatch(r.sr))
                 .sort((a, b) => (a.sr - b.sr) || (b.ytd - a.ytd));
               const out = list.map(r => {
                 const o = { "FLM": r.flm, "SR Code": r.sr, "SR Name": r.srNm, "Customer Code": r.c, "Customer Name": custName[r.c] || "" };
@@ -1043,10 +1037,10 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 llT: llTM.bySr[s.code] || 0, llA: llAM.bySr[s.code] || 0,
               };
             };
-            const rows = (flm === "All" ? RAW.flms : [flm]).map(f => {
+            const rows = (flmList).map(f => {
               const cov = C.flmCoverage.find(c => c.flm === f) || { shopT:0, shopA:0, leadT:0, leadA:0 };
               const srs = RAW.srs
-                .filter(s => s.flm === f && (srFilter === "All" || s.code === Number(srFilter)))
+                .filter(s => s.flm === f && (srMatch(s.code)))
                 .map(srCov);
               return {
                 flm: f, srs: srs,
@@ -1507,12 +1501,12 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         // Customer details for this KPI in selected month
         const custDetails = (RAW.kpiCustByMonth[month] || [])
           .filter(r => r.k === kpiKey)
-          .filter(r => flm === "All" || (() => {
+          .filter(r => allFlm || (() => {
             const sr = RAW.srs.find(s => s.code === r.sr);
-            return sr && sr.flm === flm;
+            return sr && sflmMatch(r.flm);
           })())
-          .filter(r => srFilter === "All" || r.sr === Number(srFilter))
-          .filter(r => custFilter === "All" || r.c === Number(custFilter))
+          .filter(r => allSr || srMatch(r.sr))
+          .filter(r => custMatch(r.c))
           .map(r => {
             const cust = RAW.customers.find(c => c.c === r.c);
             const sr = RAW.srs.find(s => s.code === r.sr);
@@ -1612,7 +1606,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 }));
                 exportToExcel(rows, `${k.label.replace(/\s/g, "")}_SRMatrix_${MONTH_NAMES[month-1]}${year}.xlsx`, k.label + " SR");
               }} />}>
-              {(flm === "All" ? RAW.flms : [flm]).map(f => {
+              {(flmList).map(f => {
                 const flmSrs = srRows.filter(r => r.flm === f);
                 if (flmSrs.length === 0) return null;
                 const flmT = flmSrs.reduce((s, r) => s + r.target, 0);
@@ -1721,7 +1715,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const items = C.shopItems;
         const totT = items.reduce((s, x) => s + x.t, 0);
         const totA = items.reduce((s, x) => s + x.v, 0);
-        const flmList = (flm === "All" ? RAW.flms : [flm]);
+        const flmList = (flmList);
 
         // Per-FLM and per-SR rollups
         const flmRows = flmList.map(f => {
@@ -1748,7 +1742,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             </div>
 
             <Panel title="Shop Around — FLM Matrix (expand to see SRs and customers)"
-              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flm, srFilter,
+              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flmSel, srSel,
                 m => (RAW.shopByMonth[m] || []).filter(x => !x.isNew).map(x => ({ sr: x.sr, c: x.c, cn: x.cn, v: x.v })),
                 "ShopAround_byCustomer", "Shop Around YTD")} />}>
               <table style={tblStyle}>
@@ -1859,13 +1853,13 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       {tab === "active" && (() => {
         const am = RAW.activeByMonth[month] || {};
         const at = RAW.activeTargetByMonth[month] || {};
-        const flmList = (flm === "All" ? RAW.flms : [flm]);
+        const flmList = (flmList);
         const flmRows = flmList.map(f => ({
           flm: f, target: at.byFlm?.[f] || 0, actual: am.byFlm?.[f] || 0,
           srs: RAW.srs.filter(s => s.flm === f),
         }));
         const totT = flmRows.reduce((s, r) => s + r.target, 0);
-        const totA = (flm === "All" && srFilter === "All" && custFilter === "All") ? am.total
+        const totA = (allFlm && allSr && allCust) ? am.total
           : flmRows.reduce((s, r) => s + r.actual, 0);
         const unassigned = am.byFlm?.Unassigned || 0;
 
@@ -1956,7 +1950,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                       </React.Fragment>
                     );
                   })}
-                  {unassigned > 0 && flm === "All" && (
+                  {unassigned > 0 && allFlm && (
                     <tr style={{borderTop:"1px solid #f3f4f6", color:"#9ca3af", fontStyle:"italic"}}>
                       <td style={tdStyle}>Unassigned (no FLM)</td>
                       <td style={tdStyleR}>—</td>
@@ -1968,11 +1962,11 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                   <tr style={{borderTop:"2px solid #d1d5db", background:"#f9fafb", fontWeight:700}}>
                     <td style={tdStyle}>TOTAL</td>
                     <td style={tdStyleR}>{fmt(totT)}</td>
-                    <td style={tdStyleR}>{fmt(totA + (flm === "All" ? unassigned : 0))}</td>
-                    <td style={{...tdStyleR, color:pctColor(pct(totA + (flm === "All" ? unassigned : 0), totT))}}>
-                      {pct(totA + (flm === "All" ? unassigned : 0), totT).toFixed(0)}%
+                    <td style={tdStyleR}>{fmt(totA + (allFlm ? unassigned : 0))}</td>
+                    <td style={{...tdStyleR, color:pctColor(pct(totA + (allFlm ? unassigned : 0), totT))}}>
+                      {pct(totA + (allFlm ? unassigned : 0), totT).toFixed(0)}%
                     </td>
-                    <td style={tdStyle}><Bar2 pct={pct(totA + (flm === "All" ? unassigned : 0), totT)} /></td>
+                    <td style={tdStyle}><Bar2 pct={pct(totA + (allFlm ? unassigned : 0), totT)} /></td>
                   </tr>
                 </tbody>
               </table>
@@ -1982,7 +1976,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               action={<ExportBtn onClick={() => {
                 const SHARED = RAW.sharedCustomers || {};
                 const custSr = {}; (RAW.customers || []).forEach(c => { custSr[c.c] = c.sr; });
-                ytdCustomerExport(RAW, year, flm, srFilter, m => {
+                ytdCustomerExport(RAW, year, flmSel, srSel, m => {
                   const recs = [];
                   ((RAW.activeByMonth[m] || {}).customers || []).forEach(c => {
                     let srs = SHARED[c] ? SHARED[c].map(r => r.sr) : (custSr[c] ? [custSr[c]] : []);
@@ -2008,9 +2002,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                         const sr = cust && cust.sr ? RAW.srs.find(s => s.code === cust.sr) : null;
                         return { c: cc, n: cust?.n, f: cust?.f, sr };
                       })
-                      .filter(c => flm === "All" || c.f === flm)
-                      .filter(c => srFilter === "All" || (c.sr && c.sr.code === Number(srFilter)))
-                      .filter(c => custFilter === "All" || c.c === Number(custFilter))
+                      .filter(c => flmMatch(c.f))
+                      .filter(c => srMatch(c.sr && c.sr.code))
+                      .filter(c => custMatch(c.c))
                       .slice(0, 200)
                       .map(c => (
                         <tr key={c.c} style={{borderTop:"1px solid #f3f4f6"}}>
@@ -2059,7 +2053,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 });
               });
               const srList = RAW.srs.filter(s =>
-                (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+                (flmMatch(s.flm)) && (srMatch(s.code)));
               const srWithCust = srList.filter(s => (bySR[s.code] || []).length);
 
               const stHead = { position: "sticky", top: 0, zIndex: 2, background: "#f9fafb" };
@@ -2141,7 +2135,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       {tab === "new" && (() => {
         const nm = RAW.newByMonth[month] || {};
         const nt = RAW.newTargetByMonth[month] || {};
-        const flmList = (flm === "All" ? RAW.flms : [flm]);
+        const flmList = (flmList);
         const flmRows = flmList.map(f => ({
           flm: f, target: nt.byFlm?.[f] || 0, actual: nm.byFlm?.[f] || 0,
           srs: RAW.srs.filter(s => s.flm === f),
@@ -2150,9 +2144,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const totA = flmRows.reduce((s, r) => s + r.actual, 0);
 
         const items = (nm.items || [])
-          .filter(p => flm === "All" || p.f === flm)
-          .filter(p => srFilter === "All" || p.sr === Number(srFilter))
-          .filter(p => custFilter === "All" || p.c === Number(custFilter));
+          .filter(p => flmMatch(p.f))
+          .filter(p => srMatch(p.sr))
+          .filter(p => custMatch(p.c));
 
         return (
           <>
@@ -2243,7 +2237,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             </Panel>
 
             <Panel title={"New Listing items (" + items.length + ")"}
-              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flm, srFilter, m => {
+              action={<ExportBtn onClick={() => ytdCustomerExport(RAW, year, flmSel, srSel, m => {
                 const its = (RAW.newByMonth[m] || {}).items || [];
                 const recs = [];
                 its.forEach(p => {
@@ -2309,7 +2303,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               action={<ExportBtn onClick={() => {
                 const latest = latestDataMonth(RAW);
                 const months = []; for (let m = 1; m <= latest; m++) months.push(m);
-                const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+                const srs = RAW.srs.filter(s => (flmMatch(s.flm)) && (srMatch(s.code)));
                 const out = srs.map(s => {
                   const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
                   let ytdA = 0, ytdT = 0;
@@ -2334,7 +2328,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                   <th style={thStyle}>Progress</th>
                 </tr></thead>
                 <tbody>
-                  {(flm === "All" ? RAW.flms : [flm]).map(f => {
+                  {(flmList).map(f => {
                     const tt = leadTM.byFlm[f] || 0;
                     const ta = leadAM.byFlm[f] || 0;
                     const tp = pct(ta, tt);
@@ -2394,7 +2388,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const buildYtd = (actualByMonth, targetByMonth, fname, sheet) => {
           const latest = latestDataMonth(RAW);
           const months = []; for (let m = 1; m <= latest; m++) months.push(m);
-          const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+          const srs = RAW.srs.filter(s => (flmMatch(s.flm)) && (srMatch(s.code)));
           const out = srs.map(s => {
             const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
             let ytdA = 0, ytdT = 0;
@@ -2422,7 +2416,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             </div>
             <Panel title="Active 1-Month — FLM × SR (expandable)"
               action={<ExportBtn onClick={() => buildYtd("active1ByMonth", "activeTarget1ByMonth", "Active1M_YTD", "Active 1M YTD")} />}>
-              <KpiMatrix TM={active1TM} AM={active1AM} flm={flm} RAW={RAW}
+              <KpiMatrix TM={active1TM} AM={active1AM} flmList={flmList} RAW={RAW}
                 expanded={expanded} setExpanded={setExpanded} keyPrefix="a1" />
             </Panel>
             {(() => {
@@ -2432,7 +2426,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               const bySR = {};
               Object.keys(custSrs).forEach(cc => (custSrs[cc] || []).forEach(sr => { (bySR[sr] = bySR[sr] || []).push(Number(cc)); }));
               const srs = RAW.srs
-                .filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)))
+                .filter(s => (flmMatch(s.flm)) && (srMatch(s.code)))
                 .filter(s => (bySR[s.code] || []).length);
               return (
                 <Panel title={"Active 1-Month — outlets per SR (" + MONTH_NAMES[month-1] + "-" + String(year).slice(2) + ") — click an SR"}>
@@ -2481,7 +2475,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const buildYtd = () => {
           const latest = latestDataMonth(RAW);
           const months = []; for (let m = 1; m <= latest; m++) months.push(m);
-          const srs = RAW.srs.filter(s => (flm === "All" || s.flm === flm) && (srFilter === "All" || s.code === Number(srFilter)));
+          const srs = RAW.srs.filter(s => (flmMatch(s.flm)) && (srMatch(s.code)));
           const out = srs.map(s => {
             const o = { "FLM": s.flm, "SR Code": s.code, "SR Name": s.name };
             let ytdA = 0, ytdT = 0;
@@ -2509,7 +2503,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             </div>
             <Panel title="L&L — FLM × SR (expandable)"
               action={<ExportBtn onClick={buildYtd} />}>
-              <KpiMatrix TM={llTM} AM={llAM} flm={flm} RAW={RAW}
+              <KpiMatrix TM={llTM} AM={llAM} flmList={flmList} RAW={RAW}
                 expanded={expanded} setExpanded={setExpanded} keyPrefix="ll" />
             </Panel>
           </>
@@ -2526,7 +2520,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             { id: "nu",     label: "NU",               color: "#f59e0b" },
           ];
 
-          const flmList = flm === "All" ? (RAW.flms || []) : [flm];
+          const flmList = allFlm ? (RAW.flms || []) : [flm];
 
           const computeMonth = (kpiId, m) => {
             let actual = 0, target = 0;
@@ -2534,26 +2528,26 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               if (kpiId === "sales") {
                 (RAW.actuals || []).forEach(r => {
                   if (r.m !== m) return;
-                  if (flm !== "All" && r.f !== flm) return;
+                  if (!flmMatch(r.f)) return;
                   actual += r.v || 0;
                 });
                 (RAW.targets || []).forEach(r => {
                   if (r.m !== m) return;
-                  if (flm !== "All" && r.f !== flm) return;
+                  if (!flmMatch(r.f)) return;
                   target += r.t || 0;
                 });
               } else if (kpiId === "active") {
                 // activeByMonth[m] = {total, byFlm, bySr, customers}
                 const ab = (RAW.activeByMonth && RAW.activeByMonth[m]) || {};
-                if (flm !== "All") {
-                  actual = (ab.byFlm && ab.byFlm[flm]) || 0;
+                if (!allFlm) {
+                  actual = flmList.reduce((s2, f2) => s2 + ((ab.byFlm && ab.byFlm[f2]) || 0), 0);
                 } else {
                   actual = ab.total || 0;
                 }
                 const at = RAW.activeTargetByMonth && RAW.activeTargetByMonth[m];
                 if (at) {
-                  if (flm !== "All") {
-                    target = (at.byFlm && at.byFlm[flm]) || 0;
+                  if (!allFlm) {
+                    target = flmList.reduce((s2, f2) => s2 + ((at.byFlm && at.byFlm[f2]) || 0), 0);
                   } else {
                     Object.values(at.bySr || {}).forEach(v => target += v);
                   }
@@ -2561,22 +2555,22 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               } else if (kpiId === "shop") {
                 const sb = (RAW.shopByMonth && RAW.shopByMonth[m]) || [];
                 sb.forEach(r => {
-                  if (flm !== "All" && r.f !== flm) return;
+                  if (!flmMatch(r.f)) return;
                   actual += r.v || 0;
                   target += r.t || 0;
                 });
               } else if (kpiId === "new") {
                 // newByMonth[m] = {items, byFlm, bySr}
                 const nb = (RAW.newByMonth && RAW.newByMonth[m]) || {};
-                if (flm !== "All") {
-                  actual = (nb.byFlm && nb.byFlm[flm]) || 0;
+                if (!allFlm) {
+                  actual = flmList.reduce((s2, f2) => s2 + ((nb.byFlm && nb.byFlm[f2]) || 0), 0);
                 } else {
                   actual = (nb.items && nb.items.length) || 0;
                 }
                 const nt = RAW.newTargetByMonth && RAW.newTargetByMonth[m];
                 if (nt) {
-                  if (flm !== "All") {
-                    target = (nt.byFlm && nt.byFlm[flm]) || 0;
+                  if (!allFlm) {
+                    target = flmList.reduce((s2, f2) => s2 + ((nt.byFlm && nt.byFlm[f2]) || 0), 0);
                   } else {
                     Object.values(nt.bySr || {}).forEach(v => target += v);
                   }
@@ -2585,15 +2579,15 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 const lt = RAW.leadTargetByMonth && RAW.leadTargetByMonth[m];
                 const la = RAW.leadActualByMonth && RAW.leadActualByMonth[m];
                 if (lt) {
-                  if (flm !== "All") {
-                    target = (lt.byFlm && lt.byFlm[flm]) || 0;
+                  if (!allFlm) {
+                    target = flmList.reduce((s2, f2) => s2 + ((lt.byFlm && lt.byFlm[f2]) || 0), 0);
                   } else {
                     Object.values(lt.bySr || {}).forEach(v => target += v);
                   }
                 }
                 if (la) {
-                  if (flm !== "All") {
-                    actual = (la.byFlm && la.byFlm[flm]) || 0;
+                  if (!allFlm) {
+                    actual = flmList.reduce((s2, f2) => s2 + ((la.byFlm && la.byFlm[f2]) || 0), 0);
                   } else {
                     Object.values(la.bySr || {}).forEach(v => actual += v);
                   }
@@ -2649,10 +2643,10 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                     });
                   });
                 });
-                exportToExcel(rows, `Trend_${year}_${flm === "All" ? "All" : flm.replace(/\s/g,"")}.xlsx`, "Trend");
+                exportToExcel(rows, `Trend_${year}_${allFlm ? "All" : flm.replace(/\s/g,"")}.xlsx`, "Trend");
               }} />}>
               <div style={{fontSize:11, color:"#6b7280", marginBottom:14}}>
-                5 KPIs across 2026. FLM filter applies (currently: <strong>{flm}</strong>).
+                5 KPIs across 2026. FLM filter applies (currently: <strong>{allFlm ? "All" : flmSel.join(", ")}</strong>).
                 Months with no data show 0. Trend = direction of last few months with data.
               </div>
 
@@ -2900,7 +2894,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
               return HEATMAP_KPIS.map(kpi => {
                 // Filter FLMs by current filter
-                const flmList = flm === "All" ? (RAW.flms || []) : [flm];
+                const flmList = allFlm ? (RAW.flms || []) : [flm];
 
                 // Build FLM-level rows
                 const flmRows = flmList.map(f => {
@@ -3047,8 +3041,8 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         });
 
         let scoped = rows;
-        if (flm !== "All") scoped = scoped.filter(r => r.f === flm);
-        if (srFilter !== "All") scoped = scoped.filter(r => r.sr === Number(srFilter));
+        if (!allFlm) scoped = scoped.filter(r => flmMatch(r.f));
+        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr));
         if (custSearch.trim()) {
           const q = custSearch.trim().toLowerCase();
           scoped = scoped.filter(r => String(r.c).includes(q) || String(r.n || "").toLowerCase().includes(q));
@@ -3368,6 +3362,60 @@ function FilterField({ label, children }) {
   );
 }
 
+// Checkbox dropdown for multi-select filters. `selected` is an array; [] = All.
+function MultiSelect({ options, selected, onChange, disabled, allLabel, searchable }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const isSel = (v) => selected.indexOf(v) >= 0;
+  const toggle = (v) => { onChange(isSel(v) ? selected.filter(x => x !== v) : selected.concat([v])); };
+  const shown = (searchable && q)
+    ? options.filter(o => String(o.label).toLowerCase().indexOf(q.toLowerCase()) >= 0)
+    : options;
+  const summary = selected.length === 0 ? allLabel
+    : selected.length === 1 ? ((options.find(o => o.value === selected[0]) || {}).label || String(selected[0]))
+    : selected.length + " selected";
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" disabled={disabled} onClick={() => !disabled && setOpen(o => !o)}
+        style={{ ...selectStyle, textAlign: "left", background: disabled ? "#f3f4f6" : "#fff",
+          cursor: disabled ? "not-allowed" : "pointer", color: disabled ? "#6b7280" : "#111827",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {summary}<span style={{ float: "right", color: "#9ca3af" }}>▾</span>
+      </button>
+      {open && !disabled && (
+        <div style={{ position: "absolute", zIndex: 30, top: "calc(100% + 2px)", left: 0, right: 0,
+          minWidth: 190, maxHeight: 300, overflowY: "auto", background: "#fff", border: "1px solid #d1d5db",
+          borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.12)", padding: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 6px" }}>
+            <span style={{ fontSize: 11, color: "#2563eb", cursor: "pointer" }} onClick={() => onChange([])}>Clear (All)</span>
+            <span style={{ fontSize: 11, color: "#6b7280", cursor: "pointer" }} onClick={() => onChange(options.map(o => o.value))}>Select all</span>
+          </div>
+          {searchable && (
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: "4px 6px", margin: "2px 0",
+                border: "1px solid #e5e7eb", borderRadius: 6 }} />
+          )}
+          {shown.slice(0, 300).map(o => (
+            <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px",
+              fontSize: 12, cursor: "pointer" }}>
+              <input type="checkbox" checked={isSel(o.value)} onChange={() => toggle(o.value)} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+            </label>
+          ))}
+          {shown.length === 0 && <div style={{ padding: 8, fontSize: 11, color: "#9ca3af" }}>No matches</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabBtn({ label, v, cur, on, color, small }) {
   const active = cur === v;
   return (
@@ -3615,7 +3663,7 @@ function Bar2({ pct }) {
 
 // Reusable FLM → SR target-vs-actual matrix (expand an FLM to see its SRs).
 // TM/AM are { bySr, byFlm } maps for the selected month.
-function KpiMatrix({ TM, AM, flm, RAW, expanded, setExpanded, keyPrefix }) {
+function KpiMatrix({ TM, AM, flmList, RAW, expanded, setExpanded, keyPrefix }) {
   const tm = TM || { bySr:{}, byFlm:{} }, am = AM || { bySr:{}, byFlm:{} };
   return (
     <table style={tblStyle}>
@@ -3627,7 +3675,7 @@ function KpiMatrix({ TM, AM, flm, RAW, expanded, setExpanded, keyPrefix }) {
         <th style={thStyle}>Progress</th>
       </tr></thead>
       <tbody>
-        {(flm === "All" ? RAW.flms : [flm]).map(f => {
+        {(flmList).map(f => {
           const tt = (tm.byFlm && tm.byFlm[f]) || 0;
           const ta = (am.byFlm && am.byFlm[f]) || 0;
           const tp = pct(ta, tt);
