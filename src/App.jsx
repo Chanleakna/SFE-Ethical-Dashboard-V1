@@ -594,7 +594,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
     }
 
     // === FLM-level rollup with SR list nested ===
-    const flmList = (flmList);
+    const flmList = allFlm ? (RAW.flms || []) : flmSel;
     const flmRollup = flmList.map(f => {
       const flmSrs = RAW.srs.filter(s => s.flm === f &&
         (srMatch(s.code)));
@@ -732,7 +732,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R15 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R16 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1715,7 +1715,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const items = C.shopItems;
         const totT = items.reduce((s, x) => s + x.t, 0);
         const totA = items.reduce((s, x) => s + x.v, 0);
-        const flmList = (flmList);
+        const flmList = allFlm ? (RAW.flms || []) : flmSel;
 
         // Per-FLM and per-SR rollups
         const flmRows = flmList.map(f => {
@@ -1853,7 +1853,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       {tab === "active" && (() => {
         const am = RAW.activeByMonth[month] || {};
         const at = RAW.activeTargetByMonth[month] || {};
-        const flmList = (flmList);
+        const flmList = allFlm ? (RAW.flms || []) : flmSel;
         const flmRows = flmList.map(f => ({
           flm: f, target: at.byFlm?.[f] || 0, actual: am.byFlm?.[f] || 0,
           srs: RAW.srs.filter(s => s.flm === f),
@@ -2135,7 +2135,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       {tab === "new" && (() => {
         const nm = RAW.newByMonth[month] || {};
         const nt = RAW.newTargetByMonth[month] || {};
-        const flmList = (flmList);
+        const flmList = allFlm ? (RAW.flms || []) : flmSel;
         const flmRows = flmList.map(f => ({
           flm: f, target: nt.byFlm?.[f] || 0, actual: nm.byFlm?.[f] || 0,
           srs: RAW.srs.filter(s => s.flm === f),
@@ -2520,7 +2520,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             { id: "nu",     label: "NU",               color: "#f59e0b" },
           ];
 
-          const flmList = allFlm ? (RAW.flms || []) : [flm];
+          const flmList = allFlm ? (RAW.flms || []) : flmSel;
 
           const computeMonth = (kpiId, m) => {
             let actual = 0, target = 0;
@@ -2894,7 +2894,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
               return HEATMAP_KPIS.map(kpi => {
                 // Filter FLMs by current filter
-                const flmList = allFlm ? (RAW.flms || []) : [flm];
+                const flmList = allFlm ? (RAW.flms || []) : flmSel;
 
                 // Build FLM-level rows
                 const flmRows = flmList.map(f => {
