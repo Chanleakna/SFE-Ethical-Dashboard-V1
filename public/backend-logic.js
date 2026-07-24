@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R27';
+const CODE_VERSION = 'R28';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -775,20 +775,36 @@ function buildDashboardPayload() {
   } catch (e) { /* tab is optional */ }
 
   const allocated = [];
+  // Breakdown of the "Other Ethical" gap (Sales headline minus the KPI matrix):
+  //   untracked   — Ethical sales on products whose sub-brand isn't one of the 10 KPIs
+  //   unmatchedSr — tracked-KPI sales whose rep name didn't match any SR
+  // Both count in the Sales headline but have no KPI column, so they're the gap.
+  const otherByMonth = {};
+  const bumpOther = function (m, bucket, key, v) {
+    if (!otherByMonth[m]) otherByMonth[m] = { untracked: 0, unmatchedSr: 0, untrackedBySb: {}, unmatchedBySr: {} };
+    otherByMonth[m][bucket] += v;
+    const map = bucket === 'untracked' ? otherByMonth[m].untrackedBySb : otherByMonth[m].unmatchedBySr;
+    map[key] = (map[key] || 0) + v;
+  };
   daily.forEach(r => {
     // === FIX: case-insensitive Ethical filter ===
     if (!isEthical(r['Dep'])) return;
-    const matCode = Number(r['Material Code']);
-    const mat = matMap[matCode];
-    if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) return;
     const monthNum = mapMonth(r['Short Cut']);
     if (!monthNum) return;
     if (numVal(r['Year']) !== 2026) return;
+    const sales = numVal(r['Total Act. Sales']);
+    const matCode = Number(r['Material Code']);
+    const mat = matMap[matCode];
+    // Untracked product (or sub-brand not in the 10 KPIs) — part of the "Other" gap.
+    if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) {
+      const label = (mat && mat.sb) ? mat.sb : (mat ? '(sub-brand blank)' : ('material ' + matCode + ' not in master'));
+      bumpOther(monthNum, 'untracked', label, sales);
+      return;
+    }
     const cust = Number(r['Customer Code']);
     const cat = mat.cat;
     // Sales actuals match the Export tab exactly — negatives (returns/credit
     // notes) are included, same as the raw data.
-    const sales = numVal(r['Total Act. Sales']);
     const flm = normFlm(r['FLM']);
     const srFirst = firstSr(r);
     const dailySr = srMatch[srFirst] || null;
@@ -819,6 +835,9 @@ function buildDashboardPayload() {
         k: mat.sb, cust: cust, cat: cat,
         v: sales,
       });
+    } else {
+      // Tracked KPI product but the rep name didn't match any SR — part of "Other".
+      bumpOther(monthNum, 'unmatchedSr', srFirst || '(blank rep)', sales);
     }
   });
 
@@ -1562,6 +1581,7 @@ function buildDashboardPayload() {
     custAssign: custAssign,
     srTeam: srTeam,
     flmCatReps: flmCatReps,
+    otherByMonth: otherByMonth,
     codeVersion: CODE_VERSION,
     generatedAt: new Date().toISOString(),
   };
@@ -1611,6 +1631,28 @@ function debugNaAssign() {
       out.sample.push({ code: Number(c), name: map[c].name, pnd: map[c].pnd, mnd: map[c].mnd });
     });
   } catch (e) { out.error = e.message; }
+  // Also report the "Other Ethical" gap breakdown (Sales headline minus the KPI
+  // matrix): which non-KPI products and which unmatched reps make up the number,
+  // per month. This is why the two totals differ — nothing is lost.
+  try {
+    const data = getDashboardData();
+    const obm = (data && data.otherByMonth) || {};
+    const topN = function (m) {
+      return Object.keys(m).map(function (k) { return { name: k, v: Math.round(m[k]) }; })
+        .sort(function (a, b) { return Math.abs(b.v) - Math.abs(a.v); }).slice(0, 12);
+    };
+    out.otherEthical = {};
+    Object.keys(obm).forEach(function (mm) {
+      const o = obm[mm];
+      out.otherEthical[mm] = {
+        otherTotal: Math.round(o.untracked + o.unmatchedSr),
+        untrackedTotal: Math.round(o.untracked),
+        unmatchedRepTotal: Math.round(o.unmatchedSr),
+        untrackedByProduct: topN(o.untrackedBySb),
+        unmatchedByRep: topN(o.unmatchedBySr),
+      };
+    });
+  } catch (e) { out.otherError = e.message; }
   return out;
 }
 
