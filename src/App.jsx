@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R23";
+const BUILD_TAG = "R24";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -457,6 +457,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const srMatch = (code) => allSr || srSel.indexOf(Number(code)) >= 0;
   const custMatch = (code) => allCust || custSel.indexOf(Number(code)) >= 0;
   const flmList = allFlm ? (RAW.flms || []) : flmSel;
+  const [custLookup, setCustLookup] = useState(""); // Active 1M: customer code lookup
   const [lapseFilter, setLapseFilter] = useState("all"); // Customer Sales tab: all / 3 / 6 / 12
   const [custSortKey, setCustSortKey] = useState("total"); // Customer Sales sort column
   const [custSortDir, setCustSortDir] = useState("desc");
@@ -2433,6 +2434,60 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               <Metric label="Logic" value="Same as 3-mo"
                 actual="1-month rolling window" pct={null} accent="#6b7280" />
             </div>
+            {(() => {
+              // Customer lookup — type a code to see exactly how this month treats it:
+              // active?, credited to which SR(s)?, assigned in Shared_Customers?, unassigned?
+              const code = Number(String(custLookup).trim());
+              const srByCode = {}; (RAW.srs || []).forEach(s => { srByCode[s.code] = s; });
+              const nm = (c) => (srByCode[c] && srByCode[c].name) || ("SR " + c);
+              let report = null;
+              if (code) {
+                const custObj = (RAW.customers || []).find(c => c.c === code)
+                  || (RAW.customerMonthly || []).find(c => c.c === code);
+                const activeCodes = active1AM.customers || [];
+                const isActive = activeCodes.indexOf(code) >= 0;
+                const creditedTo = (active1AM.custSrs && active1AM.custSrs[code]) || [];
+                const asg = (RAW.custAssign && RAW.custAssign[code]) || null;
+                const un = (active1AM.unassigned || []).find(u => u.c === code) || null;
+                const sharedRows = (RAW.sharedCustomers && RAW.sharedCustomers[code]) || [];
+                report = { custObj, isActive, creditedTo, asg, un, sharedRows };
+              }
+              return (
+                <Panel title="🔎 Customer lookup — how is this outlet counted this month?">
+                  <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:8}}>
+                    <input value={custLookup} onChange={e => setCustLookup(e.target.value)}
+                      placeholder="Enter Customer Code (e.g. 281033726)"
+                      style={{...selectStyle, minWidth:260, padding:"5px 9px"}} />
+                    <span style={{fontSize:11, color:"#6b7280"}}>Showing for {MONTH_NAMES[month-1]}-{String(year).slice(2)}</span>
+                  </div>
+                  {!code ? (
+                    <div style={{fontSize:12, color:"#9ca3af"}}>Type a customer code to see whether it's active, who it's credited to, and its Shared_Customers assignment.</div>
+                  ) : !report.custObj && !report.isActive ? (
+                    <div style={{fontSize:12, color:"#b45309"}}>No customer found for code {code}. Check the code.</div>
+                  ) : (
+                    <div style={{fontSize:12.5, lineHeight:1.7}}>
+                      <div><b>{(report.custObj && (report.custObj.n)) || ("Customer " + code)}</b> <span style={{fontFamily:"monospace", color:"#9ca3af"}}>{code}</span>
+                        {report.custObj && report.custObj.f ? <span style={{color:"#6b7280"}}> · {report.custObj.f}</span> : null}</div>
+                      <div>Active this month: {report.isActive
+                        ? <b style={{color:"#16a34a"}}>YES</b>
+                        : <b style={{color:"#dc2626"}}>NO</b>}
+                        {report.un ? <span style={{color:"#6b7280"}}> · PND {fmt(report.un.pnd)} · MND {fmt(report.un.mnd)}</span> : null}</div>
+                      <div>Credited to: {report.creditedTo.length
+                        ? <b style={{color:"#7c3aed"}}>{report.creditedTo.map(nm).join(", ")}</b>
+                        : <span style={{color:"#b45309"}}>nobody (Unassigned bucket)</span>}</div>
+                      <div>In Shared_Customers: {report.sharedRows.length
+                        ? <span style={{color:"#16a34a"}}>{report.sharedRows.map(r => nm(r.sr) + " (" + (r.cat || "?") + ")").join(", ")}</span>
+                        : <span style={{color:"#b45309"}}>NO — falls back to the booking rep</span>}</div>
+                      {report.un ? (
+                        <div style={{marginTop:6, padding:"6px 8px", background:"#fef3c7", borderRadius:4, color:"#92400e"}}>
+                          This outlet is in the <b>Unassigned</b> list (has PND/MND sales, no Shared_Customers row). It currently counts for <b>{report.un.sr ? nm(report.un.sr) : "nobody"}</b>.
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </Panel>
+              );
+            })()}
             <Panel title="Active 1-Month — FLM × SR (expandable)"
               action={<ExportBtn onClick={() => buildYtd("active1ByMonth", "activeTarget1ByMonth", "Active1M_YTD", "Active 1M YTD")} />}>
               <KpiMatrix TM={active1TM} AM={active1AM} flmList={flmList} RAW={RAW}
