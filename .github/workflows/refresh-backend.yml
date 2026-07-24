@@ -1,0 +1,30 @@
+name: Refresh backend cache
+
+# The Apps Script backend runs a self-updating LOADER (APPS_SCRIPT_LOADER.gs):
+# it pulls the latest logic from the public site on its own. This workflow just
+# nudges it after a merge — it waits for Vercel to publish the new
+# /backend-logic.js, then clears the Apps Script cache so the next dashboard
+# load picks up the new logic immediately (instead of waiting ~10 min).
+#
+# No secrets required: the /exec URL is the public web-app endpoint and
+# ?action=clearCache is a safe, read-only-ish cache reset.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Vercel to publish the new logic, then clear the cache
+        run: |
+          EXEC="https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5Dwaq1E-0cgOrn7CKIcRW8PMJuzywqH5WQIXWfQ7JKXiei/exec"
+          echo "Waiting 120s for Vercel to deploy the updated /backend-logic.js…"
+          sleep 120
+          echo "Clearing the Apps Script cache…"
+          curl -sSL --max-time 60 "$EXEC?action=clearCache" || true
+          echo
+          echo "Health after refresh:"
+          curl -sSL --max-time 60 "$EXEC?action=health" || true
