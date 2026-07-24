@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R29";
+const BUILD_TAG = "R30";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -707,7 +707,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
     let custs = (RAW.customerMonthly && RAW.customerMonthly.length)
       ? RAW.customerMonthly : (RAW.customers || []);
     if (!allFlm) custs = custs.filter(c => flmMatch(c.f));
-    if (!allSr) custs = custs.filter(c => srMatch(c.sr));
+    if (!allSr) custs = custs.filter(c => srMatch(c.sr) || (c.srs || []).some(srMatch) || (c.asg || []).some(srMatch));
     if (custSearch) {
       const q = custSearch.toLowerCase();
       custs = custs.filter(c => String(c.c).includes(q) || String(c.n || "").toLowerCase().includes(q));
@@ -3206,9 +3206,10 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
         let scoped = rows;
         if (!allFlm) scoped = scoped.filter(r => flmMatch(r.f));
-        // Match the customer's own SR OR any assigned PND/MND rep, so filtering by
-        // an assigned rep surfaces every outlet they're responsible for.
-        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr) || (r.asg || []).some(srMatch));
+        // Match the customer's master SR, any rep who actually SOLD to it, OR any
+        // assigned PND/MND rep — so filtering by a rep shows every outlet they
+        // touched in the data (not just where they're the master rep).
+        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr) || (r.srs || []).some(srMatch) || (r.asg || []).some(srMatch));
         if (custSearch.trim()) {
           const q = custSearch.trim().toLowerCase();
           scoped = scoped.filter(r => String(r.c).includes(q) || String(r.n || "").toLowerCase().includes(q));
