@@ -734,6 +734,17 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
               color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R21 ✓</span>
+            {(() => {
+              const dv = RAW.codeVersion;
+              const ok = dv === "R21";
+              return (
+                <span title={ok ? "Backend Code.gs is up to date" : "Backend is OUT OF DATE — redeploy Code.gs (New version) and clear cache"}
+                  style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
+                    background: ok ? "#dcfce7" : "#fee2e2", color: ok ? "#166534" : "#b91c1c" }}>
+                  data {dv || "?"} {ok ? "✓" : "✕ redeploy backend"}
+                </span>
+              );
+            })()}
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>

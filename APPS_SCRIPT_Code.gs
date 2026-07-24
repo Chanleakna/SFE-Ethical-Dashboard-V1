@@ -49,6 +49,13 @@ const TAB_NAMES = {
 const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import clears it)
 
+// Backend version stamp. BUMP THIS whenever you paste a new Code.gs. It shows on
+// the dashboard next to the frontend build badge and is returned (uncached) by
+// ?action=health — so you can instantly tell whether your Apps Script redeploy
+// actually went live. If the dashboard's "data" tag doesn't match this, your
+// New-version deploy didn't take (or the cache wasn't cleared).
+const CODE_VERSION = 'R21';
+
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
 // script) — it cannot read Outlook/Microsoft mailboxes. If your daily sales
@@ -79,7 +86,7 @@ function doGet(e) {
     if (action === 'login')   return jsonResponse(handleLogin(e.parameter.code));
     if (action === 'data')    return jsonResponse(getDashboardData());
     if (action === 'accessLog') return jsonResponse(getAccessLog(e.parameter.code));
-    if (action === 'health')  return jsonResponse({ ok: true, time: new Date().toISOString() });
+    if (action === 'health')  return jsonResponse({ ok: true, codeVersion: CODE_VERSION, time: new Date().toISOString() });
     if (action === 'clearCache') {
       clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data');
       return jsonResponse({ ok: true, message: 'Cache cleared' });
@@ -1467,6 +1474,8 @@ function buildDashboardPayload() {
     mndPndByMonth: mndPndByMonth,
     subBrandCategory: subBrandCategory,
     sharedCustomers: SHARED,
+    custAssign: custAssign,
+    codeVersion: CODE_VERSION,
     generatedAt: new Date().toISOString(),
   };
 }
