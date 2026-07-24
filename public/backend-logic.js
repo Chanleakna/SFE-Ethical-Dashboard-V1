@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R25';
+const CODE_VERSION = 'R26';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -1133,13 +1133,21 @@ function buildDashboardPayload() {
         if (mode === 'assigned' && !custAssign[c]) {
           const cnU = catNet[cs] || { PND: 0, MND: 0 };
           if (cnU.PND > 0 || cnU.MND > 0) {
+            // Who the system recognizes as booking each category (matched SR codes).
+            // If a category has sales but NO booker here, the seller's name in the
+            // daily data didn't match a known SR — that's why it isn't credited.
+            const pndBy = Object.keys((srCatAmt[cs] && srCatAmt[cs].PND) || {}).map(Number);
+            const mndBy = Object.keys((srCatAmt[cs] && srCatAmt[cs].MND) || {}).map(Number);
             unassigned.push({
               c: c,
               n: (custDict[c] && custDict[c].name) || ('Customer ' + c),
               f: (custDict[c] && custDict[c].flm) || (srs[0] ? srToFlm[srs[0]] : null),
               pnd: Math.round(cnU.PND),
               mnd: Math.round(cnU.MND),
-              sr: srs[0] || null,   // who it currently falls back to (top seller)
+              sr: srs[0] || null,   // who it currently falls back to
+              srs: srs.slice(),     // all reps it's credited to (category-aware)
+              pndBy: pndBy,         // SR codes recognized as PND sellers
+              mndBy: mndBy,         // SR codes recognized as MND sellers
             });
           }
         }
