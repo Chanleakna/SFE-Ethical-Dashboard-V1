@@ -733,7 +733,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R19 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R20 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -3046,7 +3046,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
         let scoped = rows;
         if (!allFlm) scoped = scoped.filter(r => flmMatch(r.f));
-        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr));
+        // Match the customer's own SR OR any assigned PND/MND rep, so filtering by
+        // an assigned rep surfaces every outlet they're responsible for.
+        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr) || (r.asg || []).some(srMatch));
         if (custSearch.trim()) {
           const q = custSearch.trim().toLowerCase();
           scoped = scoped.filter(r => String(r.c).includes(q) || String(r.n || "").toLowerCase().includes(q));

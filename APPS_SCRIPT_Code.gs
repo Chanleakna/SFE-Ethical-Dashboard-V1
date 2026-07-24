@@ -84,6 +84,7 @@ function doGet(e) {
       clearChunkedCache_(CacheService.getScriptCache(), 'dashboard_data');
       return jsonResponse({ ok: true, message: 'Cache cleared' });
     }
+    if (action === 'debugNa') return jsonResponse(debugNaAssign());
     return jsonResponse({ error: 'unknown action' });
   } catch (err) {
     return jsonResponse({ error: err.message, stack: err.stack });
@@ -673,11 +674,27 @@ function buildDashboardPayload() {
         if (tt.length === 0 || dt.length === 0) return;
         const aInB = dt.every(x => tt.indexOf(x) >= 0);
         const bInA = tt.every(x => dt.indexOf(x) >= 0);
-        if (!aInB && !bInA) return;
-        const score = (dt.length + tt.length) / (2 * Math.max(dt.length, tt.length));
-        if (score > bestScore) { bestScore = score; best = sr; }
+        if (aInB || bInA) {
+          const score = (dt.length + tt.length) / (2 * Math.max(dt.length, tt.length));
+          if (score > bestScore) { bestScore = score; best = sr; }
+        }
       });
-      cache[name] = (best && bestScore >= 0.7) ? best.code : null;
+      if (best && bestScore >= 0.7) { cache[name] = best.code; return cache[name]; }
+      // Lenient fallback: tolerate a single misspelled token (e.g. "Phann" vs
+      // "Phan"). Require a strong shared token (≥4 chars) and ≥50% token overlap.
+      let lBest = null, lScore = 0;
+      srMaster.forEach(function (sr) {
+        const tt = tokenize(sr.name);
+        if (tt.length === 0 || dt.length === 0) return;
+        let shared = 0, strong = false;
+        dt.forEach(function (x) {
+          if (tt.indexOf(x) >= 0) { shared++; if (x.length >= 4) strong = true; }
+        });
+        if (!strong) return;
+        const ov = shared / Math.max(dt.length, tt.length);
+        if (ov >= 0.5 && ov > lScore) { lScore = ov; lBest = sr; }
+      });
+      cache[name] = lBest ? lBest.code : null;
       return cache[name];
     };
   })();
@@ -1390,9 +1407,12 @@ function buildDashboardPayload() {
 
   const customers = [];
   Object.keys(custDict).forEach(c => {
+    const asg = custAssign[Number(c)] || null;
+    const asgSrs = asg ? [asg.pnd, asg.mnd].filter(function (x) { return x; }) : [];
     customers.push({
       c: Number(c), n: custDict[c].name,
       f: custDict[c].flm, sr: custDict[c].sr,
+      asg: asgSrs,
     });
   });
 
@@ -1437,11 +1457,14 @@ function buildDashboardPayload() {
     const sales = numVal(r['Total Act. Sales']);
     if (!custMonthly[c]) {
       const srFirst = firstSr(r);
+      const asg = custAssign[c] || null;
+      const asgSrs = asg ? [asg.pnd, asg.mnd].filter(function (x) { return x; }) : [];
       custMonthly[c] = {
         c: c,
         n: r['Customer Name'] || ('Customer ' + c),
         sr: srMatch[srFirst] || (custDict[c] && custDict[c].sr) || null,
         f: normFlm(r['FLM']) || (custDict[c] && custDict[c].flm) || null,
+        asg: asgSrs,      // assigned PND/MND reps — so filtering by them shows this outlet
         p: {},
       };
     }
@@ -1498,6 +1521,22 @@ function readSheet(ss, name) {
     rows.push(obj);
   }
   return rows;
+}
+
+// Diagnostic: confirm the NA Name assignment table is being read. Open the
+// web-app URL with ?action=debugNa to see how many rows were found and a sample.
+function debugNaAssign() {
+  const out = { tabsScanned: [], detectedTab: null, rowCount: 0, sample: [] };
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.ims);
+    ss.getSheets().forEach(function (sh) { out.tabsScanned.push(sh.getName()); });
+    const map = readNaAssign_(ss);
+    out.rowCount = Object.keys(map).length;
+    Object.keys(map).slice(0, 15).forEach(function (code) {
+      out.sample.push({ code: Number(code), pnd: map[code].pnd, mnd: map[code].mnd });
+    });
+  } catch (e) { out.error = e.message; }
+  return out;
 }
 
 // Reads the "NA Name" assignment table:  HCO Code | HCO Name | NA Name(PND|MND).
