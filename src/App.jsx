@@ -438,10 +438,11 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const [auto, setAuto] = useState(true);
   const [tab, setTab] = useState("summary");
 
-  // Filters. Default to the CURRENT calendar month/year every time the dashboard
-  // opens (per request), so today's month is always the first thing shown.
+  // Default to the current month WHEN it already has sales data; otherwise fall
+  // back to the latest month that does — so a freshly-started month (still empty)
+  // doesn't open on all-zeros. Auto-advances to the new month once its data lands.
   const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
+  const [month, setMonth] = useState(() => Math.min(new Date().getMonth() + 1, latestDataMonth(raw)));
   // Multi-select filters — each is an array of selected values; [] means "All".
   const [flmSel, setFlmSel] = useState(user.role === "FLM" ? [user.flm] : []);
   const [srSel, setSrSel] = useState([]);
@@ -732,7 +733,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R16 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R17 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
