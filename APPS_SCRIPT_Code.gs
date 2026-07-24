@@ -448,6 +448,13 @@ function buildDashboardPayload() {
   try { hcpHcoLookup = readSheet(imsSS, TAB_NAMES.hcpHco); }
   catch (e) { Logger.log('Note: HCP_HCO_Lookup tab not found'); }
 
+  // NA Name assignment: per-customer PND rep + MND rep (the "HCO Code | HCO Name |
+  // NA Name(PND|MND)" table). Auto-detected across the IMS tabs so no exact tab
+  // name is needed; tolerant of the 2-row header (merged "NA Name" over PND/MND).
+  let naAssignRaw = {};
+  try { naAssignRaw = readNaAssign_(imsSS); }
+  catch (e) { Logger.log('Note: NA assignment table not found: ' + e.message); }
+
   const shopRaw    = readSheet(imsSS,    TAB_NAMES.shopDetails);
   const acTarget   = readSheet(imsSS,    TAB_NAMES.activeTarget);
   const nlTarget   = readSheet(imsSS,    TAB_NAMES.newTarget);
@@ -529,6 +536,13 @@ function buildDashboardPayload() {
   Logger.log('HCP_TO_HCO map size: ' + Object.keys(HCP_TO_HCO).length);
 
   const KPIS = ['SM','SIM','STC','PED PWD','PED RPB','ENS PWD','ENS RPB','GLU PWD','GLU RPB','PRO'];
+  // Sub-brand -> National-Account category (PND vs MND). Used to credit an active
+  // outlet to its assigned PND rep for PND-category sales and its assigned MND rep
+  // for MND-category sales (the "NA Name" assignment table).
+  const SUBBRAND_CAT = {
+    'PED PWD':'PND','PED RPB':'PND','SIM':'PND','STC':'PND','SM':'PND',
+    'ENS PWD':'MND','ENS RPB':'MND','GLU PWD':'MND','GLU RPB':'MND','PRO':'MND',
+  };
   const ethical = targets.filter(r => r['Department'] === 'Ethical');
 
   const srSeen = {};
@@ -639,6 +653,46 @@ function buildDashboardPayload() {
     srToFlm[code] = bestFlm;
     srMaster.push({ code: code, name: nm, flm: bestFlm, synthetic: true });
   });
+
+  // Resolve an "NA Name" (e.g. "Phann Botumsreylak") to an SR code, using the
+  // exact daily-name map first, then the same fuzzy token match used for daily SRs.
+  const resolveSrByName = (function () {
+    const cache = {};
+    return function (rawName) {
+      if (!rawName) return null;
+      const name = cleanSellerName(String(rawName).trim());
+      if (name === '') return null;
+      if (cache[name] !== undefined) return cache[name];
+      const renamed = SR_RENAMES[name] || name;
+      if (srMatch[renamed]) { cache[name] = srMatch[renamed]; return cache[name]; }
+      if (srMatch[name])   { cache[name] = srMatch[name];   return cache[name]; }
+      const dt = tokenize(renamed);
+      let best = null, bestScore = 0;
+      srMaster.forEach(function (sr) {
+        const tt = tokenize(sr.name);
+        if (tt.length === 0 || dt.length === 0) return;
+        const aInB = dt.every(x => tt.indexOf(x) >= 0);
+        const bInA = tt.every(x => dt.indexOf(x) >= 0);
+        if (!aInB && !bInA) return;
+        const score = (dt.length + tt.length) / (2 * Math.max(dt.length, tt.length));
+        if (score > bestScore) { bestScore = score; best = sr; }
+      });
+      cache[name] = (best && bestScore >= 0.7) ? best.code : null;
+      return cache[name];
+    };
+  })();
+
+  // custAssign[customerCode] = { pnd: srCode|null, mnd: srCode|null } from the NA table.
+  const custAssign = {};
+  Object.keys(naAssignRaw).forEach(function (code) {
+    const c = Number(code);
+    if (!c) return;
+    const a = naAssignRaw[code];
+    const pnd = resolveSrByName(a.pnd);
+    const mnd = resolveSrByName(a.mnd);
+    if (pnd || mnd) custAssign[c] = { pnd: pnd || null, mnd: mnd || null };
+  });
+  Logger.log('custAssign size: ' + Object.keys(custAssign).length);
 
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
   const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
@@ -829,6 +883,7 @@ function buildDashboardPayload() {
   const dailyByPeriodCust = {};
   const shopByPeriodCust = {};
   const srByPeriodCust = {};  // period -> cust -> { srCode: salesToThisCust } — who sold & how much (Ethical)
+  const catByPeriodCust = {}; // period -> cust -> { PND: net, MND: net } — category net per outlet (Ethical)
   daily.forEach(function (r) {
     const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
@@ -840,6 +895,15 @@ function buildDashboardPayload() {
     if (!isEthical(r['Dep'])) return;  // everything below is Ethical-only
     if (!dailyByPeriodCust[period]) dailyByPeriodCust[period] = {};
     dailyByPeriodCust[period][c] = (dailyByPeriodCust[period][c] || 0) + sales;
+    // Category (PND/MND) net per outlet, so Active can credit the assigned PND rep
+    // for PND sales and the assigned MND rep for MND sales.
+    const catMat = matMap[Number(r['Material Code'])];
+    const cat = (catMat && catMat.sb) ? SUBBRAND_CAT[catMat.sb] : null;
+    if (cat) {
+      if (!catByPeriodCust[period]) catByPeriodCust[period] = {};
+      if (!catByPeriodCust[period][c]) catByPeriodCust[period][c] = { PND: 0, MND: 0 };
+      catByPeriodCust[period][c][cat] += sales;
+    }
     // Track how much each SR sold to this customer, so Active can attribute the
     // outlet to the SR who sold it the MOST (one outlet counts once).
     const srName = firstSr(r);
@@ -939,6 +1003,16 @@ function buildDashboardPayload() {
         if (!pc) return;
         Object.keys(pc).forEach(function (c) { custNet[c] = (custNet[c] || 0) + pc[c]; });
       });
+      // Category net per outlet across the window (for assigned PND/MND crediting).
+      const catNet = {};
+      periods.forEach(function (p) {
+        const cc = catByPeriodCust[p];
+        if (!cc) return;
+        Object.keys(cc).forEach(function (c) {
+          if (!catNet[c]) catNet[c] = { PND: 0, MND: 0 };
+          catNet[c].PND += cc[c].PND; catNet[c].MND += cc[c].MND;
+        });
+      });
       // Total sales each SR made to each customer across the window (to find the
       // SR who sold the most = the outlet's "owner").
       const srAmt = {};
@@ -957,13 +1031,36 @@ function buildDashboardPayload() {
       Object.keys(custs).forEach(cs => {
         const c = Number(cs);
         let srs;
-        if (mode === 'distinct') {
-          // One SR = the top seller this window, so the outlet counts once.
+        // Top seller this window (used by 'distinct', and as the 'assigned' fallback).
+        const topSeller = function () {
           let primary = null, best = -Infinity;
           const amt = srAmt[cs] || {};
           Object.keys(amt).forEach(sr => { if (amt[sr] > best) { best = amt[sr]; primary = Number(sr); } });
           if (primary == null && SHARED[c] && SHARED[c].length) primary = SHARED[c][0].sr;
           if (primary == null && custDict[c] && custDict[c].sr) primary = custDict[c].sr;
+          return primary;
+        };
+        if (mode === 'assigned') {
+          // Credit the assigned PND rep when the outlet had PND-category sales, and
+          // the assigned MND rep when it had MND-category sales ("count for both, to
+          // be fair"). The outlet still counts ONCE toward the distinct total.
+          const asg = custAssign[c];
+          const cn = catNet[cs] || { PND: 0, MND: 0 };
+          const picked = {};
+          if (asg) {
+            if (cn.PND > 0 && asg.pnd) picked[asg.pnd] = true;
+            if (cn.MND > 0 && asg.mnd) picked[asg.mnd] = true;
+          }
+          srs = Object.keys(picked).map(Number);
+          if (srs.length === 0) {
+            // No NA assignment (or the assigned rep didn't sell that category) —
+            // fall back to the top seller so the outlet still shows somewhere.
+            const primary = topSeller();
+            srs = primary == null ? [] : [primary];
+          }
+        } else if (mode === 'distinct') {
+          // One SR = the top seller this window, so the outlet counts once.
+          const primary = topSeller();
           srs = primary == null ? [] : [primary];
         } else {
           // Summed: every SR who sold to the outlet + shared partners (master as fallback).
@@ -983,8 +1080,12 @@ function buildDashboardPayload() {
       });
       let activeTotalSum = 0;
       Object.keys(flmCount).forEach(f => { activeTotalSum += flmCount[f]; });
+      // 'assigned' credits an outlet to up to two reps (PND + MND), so the per-rep
+      // counts sum higher than the outlet count. The HEADLINE total stays a DISTINCT
+      // outlet count (each active outlet counted once), as requested.
+      const distinctCount = Object.keys(custs).length;
       out[m] = {
-        total: activeTotalSum,
+        total: mode === 'assigned' ? distinctCount : activeTotalSum,
         byFlm: flmCount, bySr: srCount,
         customers: Object.keys(custs).map(Number),
         custSrs: custSrsMap,
@@ -993,7 +1094,7 @@ function buildDashboardPayload() {
     return out;
   };
   const activeByMonth  = computeActiveByMonth(3, 'summed');   // 3-mo: unchanged from before
-  const active1ByMonth = computeActiveByMonth(1, 'distinct'); // 1-mo: each outlet counts once
+  const active1ByMonth = computeActiveByMonth(1, 'assigned'); // 1-mo: credit assigned PND + MND reps; total = distinct outlets
 
   const findCol = (obj, names) => {
     for (let i = 0; i < names.length; i++) if (names[i] in obj) return names[i];
@@ -1397,6 +1498,47 @@ function readSheet(ss, name) {
     rows.push(obj);
   }
   return rows;
+}
+
+// Reads the "NA Name" assignment table:  HCO Code | HCO Name | NA Name(PND|MND).
+// It scans every tab in the spreadsheet and picks the one whose header area has
+// both a "PND" and an "MND" cell plus a code column — so the exact tab name isn't
+// needed. Handles the 2-row header (merged "NA Name" spanning the PND/MND columns).
+// Returns { hcoCode(Number): { pnd: 'Rep Name'|'', mnd: 'Rep Name'|'' } }.
+function readNaAssign_(ss) {
+  const map = {};
+  const sheets = ss.getSheets();
+  for (let s = 0; s < sheets.length; s++) {
+    const values = sheets[s].getDataRange().getValues();
+    if (values.length < 2) continue;
+    let pndCol = -1, mndCol = -1, codeCol = -1, headerRow = -1;
+    const scan = Math.min(6, values.length);
+    for (let ri = 0; ri < scan; ri++) {
+      const row = values[ri];
+      for (let ci = 0; ci < row.length; ci++) {
+        const cell = String(row[ci]).trim().toUpperCase();
+        if (cell === 'PND') pndCol = ci;
+        else if (cell === 'MND') mndCol = ci;
+        else if (cell === 'HCO CODE' || cell === 'CUSTOMER CODE' || cell === 'CODE') codeCol = ci;
+      }
+      if (pndCol >= 0 && mndCol >= 0) { headerRow = ri; break; }
+    }
+    if (pndCol < 0 || mndCol < 0) continue;             // not the NA table
+    if (codeCol < 0) codeCol = 0;                        // fall back to first column
+    for (let ri = headerRow + 1; ri < values.length; ri++) {
+      const row = values[ri];
+      const code = Number(row[codeCol]);
+      if (!code) continue;
+      const pnd = String(row[pndCol] == null ? '' : row[pndCol]).trim();
+      const mnd = String(row[mndCol] == null ? '' : row[mndCol]).trim();
+      if (!pnd && !mnd) continue;
+      if (!map[code]) map[code] = { pnd: '', mnd: '' };
+      if (pnd) map[code].pnd = pnd;
+      if (mnd) map[code].mnd = mnd;
+    }
+    if (Object.keys(map).length) break;                 // found & parsed the table
+  }
+  return map;
 }
 
 // =============================================================================

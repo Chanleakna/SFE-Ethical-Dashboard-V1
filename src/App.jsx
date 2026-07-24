@@ -733,7 +733,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R18 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R19 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
