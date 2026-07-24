@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R29';
+const CODE_VERSION = 'R30';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -1537,17 +1537,21 @@ function buildDashboardPayload() {
     if (period < 202501) return; // from Jan 2025 onward
     // Match the Export tab exactly — negatives included.
     const sales = numVal(r['Total Act. Sales']);
+    const srFirst = firstSr(r);
+    const srHere = srMatch[srFirst] || null;
     if (!custMonthly[c]) {
-      const srFirst = firstSr(r);
       custMonthly[c] = {
         c: c,
         n: r['Customer Name'] || ('Customer ' + c),
-        sr: srMatch[srFirst] || (custDict[c] && custDict[c].sr) || null,
+        sr: srHere || (custDict[c] && custDict[c].sr) || null,
         f: normFlm(r['FLM']) || (custDict[c] && custDict[c].flm) || null,
         asg: assignedSrs(c),   // assigned PND/MND reps — filtering by them shows this outlet
+        srs: [],               // EVERY rep who booked a sale to this outlet
         p: {},
       };
     }
+    // Track every selling rep so filtering by an SR shows every outlet they sold to.
+    if (srHere && custMonthly[c].srs.indexOf(srHere) < 0) custMonthly[c].srs.push(srHere);
     custMonthly[c].p[period] = (custMonthly[c].p[period] || 0) + sales;
     if (period > maxPeriod) maxPeriod = period;
   });
