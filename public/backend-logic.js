@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R24';
+const CODE_VERSION = 'R25';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -904,6 +904,7 @@ function buildDashboardPayload() {
   const shopByPeriodCust = {};
   const srByPeriodCust = {};  // period -> cust -> { srCode: salesToThisCust } — who sold & how much (Ethical)
   const catByPeriodCust = {}; // period -> cust -> { PND: net, MND: net } — category net per outlet (Ethical)
+  const srCatByPeriodCust = {}; // period -> cust -> { PND:{sr:sales}, MND:{sr:sales} } — who booked each category
   daily.forEach(function (r) {
     const m = mapMonth(r['Short Cut']);
     const period = (r['Year'] || 0) * 100 + m;
@@ -932,6 +933,13 @@ function buildDashboardPayload() {
       if (!srByPeriodCust[period]) srByPeriodCust[period] = {};
       if (!srByPeriodCust[period][c]) srByPeriodCust[period][c] = {};
       srByPeriodCust[period][c][srCode] = (srByPeriodCust[period][c][srCode] || 0) + sales;
+      // Also track WHO booked each category, so the fallback can credit the PND
+      // seller for PND sales and the MND seller for MND sales (not one lump).
+      if (cat) {
+        if (!srCatByPeriodCust[period]) srCatByPeriodCust[period] = {};
+        if (!srCatByPeriodCust[period][c]) srCatByPeriodCust[period][c] = { PND: {}, MND: {} };
+        srCatByPeriodCust[period][c][cat][srCode] = (srCatByPeriodCust[period][c][cat][srCode] || 0) + sales;
+      }
     }
   });
 
@@ -1044,6 +1052,29 @@ function buildDashboardPayload() {
           Object.keys(sc[cc]).forEach(function (sr) { srAmt[cc][sr] = (srAmt[cc][sr] || 0) + sc[cc][sr]; });
         });
       });
+      // Who booked each CATEGORY for each customer across the window, so the
+      // fallback can credit the PND seller for PND and the MND seller for MND.
+      const srCatAmt = {};   // cust -> { PND:{sr:sales}, MND:{sr:sales} }
+      periods.forEach(function (p) {
+        const sc = srCatByPeriodCust[p];
+        if (!sc) return;
+        Object.keys(sc).forEach(function (cc) {
+          if (!srCatAmt[cc]) srCatAmt[cc] = { PND: {}, MND: {} };
+          ['PND', 'MND'].forEach(function (k) {
+            Object.keys(sc[cc][k]).forEach(function (sr) {
+              srCatAmt[cc][k][sr] = (srCatAmt[cc][k][sr] || 0) + sc[cc][k][sr];
+            });
+          });
+        });
+      });
+      // Top booker of a given category for a customer (the rep who sold the most
+      // of that category to it this window).
+      const topCatSeller = function (cs, k) {
+        const amt = (srCatAmt[cs] && srCatAmt[cs][k]) || {};
+        let sr = null, best = -Infinity;
+        Object.keys(amt).forEach(function (s) { if (amt[s] > best) { best = amt[s]; sr = Number(s); } });
+        return sr;
+      };
       const custs = {};
       Object.keys(custNet).forEach(c => { if (custNet[c] > 0 && !EXCLUDED_CUST_CODES[c]) custs[c] = true; });
       const flmCount = {}, srCount = {};
@@ -1068,14 +1099,20 @@ function buildDashboardPayload() {
           const asg = custAssign[c];
           const cn = catNet[cs] || { PND: 0, MND: 0 };
           const picked = {};
-          if (asg) {
-            if (cn.PND > 0) asg.pnd.forEach(function (sr) { picked[sr] = true; });
-            if (cn.MND > 0) asg.mnd.forEach(function (sr) { picked[sr] = true; });
+          // PND credit: the assigned PND rep(s) if listed in Shared_Customers,
+          // otherwise the rep who actually booked the PND sales. Same for MND.
+          if (cn.PND > 0) {
+            if (asg && asg.pnd.length) asg.pnd.forEach(function (sr) { picked[sr] = true; });
+            else { const s = topCatSeller(cs, 'PND'); if (s != null) picked[s] = true; }
+          }
+          if (cn.MND > 0) {
+            if (asg && asg.mnd.length) asg.mnd.forEach(function (sr) { picked[sr] = true; });
+            else { const s = topCatSeller(cs, 'MND'); if (s != null) picked[s] = true; }
           }
           srs = Object.keys(picked).map(Number);
           if (srs.length === 0) {
-            // No NA assignment (or the assigned rep didn't sell that category) —
-            // fall back to the top seller so the outlet still shows somewhere.
+            // No category sales matched (e.g. only untracked products) — fall back
+            // to the overall top seller so the outlet still shows somewhere.
             const primary = topSeller();
             srs = primary == null ? [] : [primary];
           }
