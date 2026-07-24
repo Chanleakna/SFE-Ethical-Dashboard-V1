@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R28";
+const BUILD_TAG = "R29";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -702,14 +702,17 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
   // Customer search filter
   const filteredCustomers = useMemo(() => {
-    let custs = RAW.customers || [];
+    // Use the fullest customer set (everyone with sales since Jan 2025) so the
+    // filter lists every customer, not just those with a 2026 FLM record.
+    let custs = (RAW.customerMonthly && RAW.customerMonthly.length)
+      ? RAW.customerMonthly : (RAW.customers || []);
     if (!allFlm) custs = custs.filter(c => flmMatch(c.f));
     if (!allSr) custs = custs.filter(c => srMatch(c.sr));
     if (custSearch) {
       const q = custSearch.toLowerCase();
       custs = custs.filter(c => String(c.c).includes(q) || String(c.n || "").toLowerCase().includes(q));
     }
-    return custs.slice(0, 100); // cap for performance
+    return custs; // no cap — the dropdown renders a window and its search covers all
   }, [flmSel, srSel, custSearch]);
 
   return (
@@ -3234,7 +3237,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
           if (typeof va === "string") return va.localeCompare(vb) * sdir;
           return (va - vb) * sdir;
         });
-        const RENDER_CAP = 300;
+        const RENDER_CAP = 5000; // effectively show every customer (Export still gives the full list)
         const shown = view.slice(0, RENDER_CAP);
         const truncated = view.length > RENDER_CAP;
         const sortBy = (key, defDir) => {
@@ -3565,13 +3568,18 @@ function MultiSelect({ options, selected, onChange, disabled, allLabel, searchab
               style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: "4px 6px", margin: "2px 0",
                 border: "1px solid #e5e7eb", borderRadius: 6 }} />
           )}
-          {shown.slice(0, 300).map(o => (
+          {shown.slice(0, 500).map(o => (
             <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px",
               fontSize: 12, cursor: "pointer" }}>
               <input type="checkbox" checked={isSel(o.value)} onChange={() => toggle(o.value)} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
             </label>
           ))}
+          {shown.length > 500 && (
+            <div style={{ padding: "6px", fontSize: 10.5, color: "#6b7280", background: "#f9fafb" }}>
+              Showing 500 of {shown.length.toLocaleString()} — type above to find any customer.
+            </div>
+          )}
           {shown.length === 0 && <div style={{ padding: 8, fontSize: 11, color: "#9ca3af" }}>No matches</div>}
         </div>
       )}
