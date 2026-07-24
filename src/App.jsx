@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R25";
+const BUILD_TAG = "R26";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -2480,7 +2480,11 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                         : <span style={{color:"#b45309"}}>NO — falls back to the booking rep</span>}</div>
                       {report.un ? (
                         <div style={{marginTop:6, padding:"6px 8px", background:"#fef3c7", borderRadius:4, color:"#92400e"}}>
-                          This outlet is in the <b>Unassigned</b> list (has PND/MND sales, no Shared_Customers row). It currently counts for <b>{report.un.sr ? nm(report.un.sr) : "nobody"}</b>.
+                          This outlet is in the <b>Unassigned</b> list (has PND/MND sales, no Shared_Customers row).
+                          <div style={{marginTop:4}}>
+                            PND booked by: {report.un.pnd > 0 ? ((report.un.pndBy || []).length ? <b>{(report.un.pndBy).map(nm).join(", ")}</b> : <b style={{color:"#dc2626"}}>⚠ seller name not recognized</b>) : "—"}
+                            {" · "}MND booked by: {report.un.mnd > 0 ? ((report.un.mndBy || []).length ? <b>{(report.un.mndBy).map(nm).join(", ")}</b> : <b style={{color:"#dc2626"}}>⚠ seller name not recognized</b>) : "—"}
+                          </div>
                         </div>
                       ) : null}
                     </div>
