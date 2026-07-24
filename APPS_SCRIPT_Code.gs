@@ -449,13 +449,6 @@ function buildDashboardPayload() {
   try { hcpHcoLookup = readSheet(imsSS, TAB_NAMES.hcpHco); }
   catch (e) { Logger.log('Note: HCP_HCO_Lookup tab not found'); }
 
-  // NA Name assignment: per-customer PND rep + MND rep (the "HCO Code | HCO Name |
-  // NA Name(PND|MND)" table). Auto-detected across the IMS tabs so no exact tab
-  // name is needed; tolerant of the 2-row header (merged "NA Name" over PND/MND).
-  let naAssignRaw = {};
-  try { naAssignRaw = readNaAssign_(imsSS); }
-  catch (e) { Logger.log('Note: NA assignment table not found: ' + e.message); }
-
   const shopRaw    = readSheet(imsSS,    TAB_NAMES.shopDetails);
   const acTarget   = readSheet(imsSS,    TAB_NAMES.activeTarget);
   const nlTarget   = readSheet(imsSS,    TAB_NAMES.newTarget);
@@ -655,60 +648,29 @@ function buildDashboardPayload() {
     srMaster.push({ code: code, name: nm, flm: bestFlm, synthetic: true });
   });
 
-  // Resolve an "NA Name" (e.g. "Phann Botumsreylak") to an SR code, using the
-  // exact daily-name map first, then the same fuzzy token match used for daily SRs.
-  const resolveSrByName = (function () {
-    const cache = {};
-    return function (rawName) {
-      if (!rawName) return null;
-      const name = cleanSellerName(String(rawName).trim());
-      if (name === '') return null;
-      if (cache[name] !== undefined) return cache[name];
-      const renamed = SR_RENAMES[name] || name;
-      if (srMatch[renamed]) { cache[name] = srMatch[renamed]; return cache[name]; }
-      if (srMatch[name])   { cache[name] = srMatch[name];   return cache[name]; }
-      const dt = tokenize(renamed);
-      let best = null, bestScore = 0;
-      srMaster.forEach(function (sr) {
-        const tt = tokenize(sr.name);
-        if (tt.length === 0 || dt.length === 0) return;
-        const aInB = dt.every(x => tt.indexOf(x) >= 0);
-        const bInA = tt.every(x => dt.indexOf(x) >= 0);
-        if (aInB || bInA) {
-          const score = (dt.length + tt.length) / (2 * Math.max(dt.length, tt.length));
-          if (score > bestScore) { bestScore = score; best = sr; }
-        }
-      });
-      if (best && bestScore >= 0.7) { cache[name] = best.code; return cache[name]; }
-      // Lenient fallback: tolerate a single misspelled token (e.g. "Phann" vs
-      // "Phan"). Require a strong shared token (≥4 chars) and ≥50% token overlap.
-      let lBest = null, lScore = 0;
-      srMaster.forEach(function (sr) {
-        const tt = tokenize(sr.name);
-        if (tt.length === 0 || dt.length === 0) return;
-        let shared = 0, strong = false;
-        dt.forEach(function (x) {
-          if (tt.indexOf(x) >= 0) { shared++; if (x.length >= 4) strong = true; }
-        });
-        if (!strong) return;
-        const ov = shared / Math.max(dt.length, tt.length);
-        if (ov >= 0.5 && ov > lScore) { lScore = ov; lBest = sr; }
-      });
-      cache[name] = lBest ? lBest.code : null;
-      return cache[name];
-    };
-  })();
-
-  // custAssign[customerCode] = { pnd: srCode|null, mnd: srCode|null } from the NA table.
+  // PND/MND assignment comes straight from the Shared_Customers tab. Each row is
+  // (Customer Code, SR Code, Category = PND|MND, Weight, SR Name, ...). We credit
+  // the assigned PND rep(s) for an outlet's PND-category sales and the assigned
+  // MND rep(s) for its MND-category sales. SR codes are taken DIRECTLY from the
+  // tab — no name matching. custAssign[cust] = { pnd:[srCodes], mnd:[srCodes] }.
   const custAssign = {};
-  Object.keys(naAssignRaw).forEach(function (code) {
+  Object.keys(SHARED).forEach(function (code) {
     const c = Number(code);
-    if (!c) return;
-    const a = naAssignRaw[code];
-    const pnd = resolveSrByName(a.pnd);
-    const mnd = resolveSrByName(a.mnd);
-    if (pnd || mnd) custAssign[c] = { pnd: pnd || null, mnd: mnd || null };
+    SHARED[c].forEach(function (rule) {
+      const cat = String(rule.cat || '').trim().toUpperCase();
+      if (cat !== 'PND' && cat !== 'MND') return;
+      if (!rule.sr) return;
+      if (!custAssign[c]) custAssign[c] = { pnd: [], mnd: [] };
+      const arr = cat === 'PND' ? custAssign[c].pnd : custAssign[c].mnd;
+      if (arr.indexOf(rule.sr) < 0) arr.push(rule.sr);
+    });
   });
+  // Flat, de-duped list of every assigned rep for a customer (for UI filtering).
+  const assignedSrs = function (c) {
+    const a = custAssign[c];
+    if (!a) return [];
+    return a.pnd.concat(a.mnd).filter(function (v, i, arr) { return v && arr.indexOf(v) === i; });
+  };
   Logger.log('custAssign size: ' + Object.keys(custAssign).length);
 
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
@@ -802,7 +764,14 @@ function buildDashboardPayload() {
     const dailySr = srMatch[srFirst] || null;
 
     if (SHARED[cust]) {
-      const matching = SHARED[cust].filter(rule => rule.cat === cat);
+      // A shared rule matches this sale if its Category equals the material's own
+      // Category OR the sub-brand's PND/MND group — so a Shared_Customers tab keyed
+      // by PND/MND (with weights) splits the sale between the assigned reps.
+      const scat = SUBBRAND_CAT[mat.sb];
+      const matching = SHARED[cust].filter(rule => {
+        const rc = String(rule.cat || '').trim().toUpperCase();
+        return rc === String(cat || '').trim().toUpperCase() || (scat && rc === scat);
+      });
       if (matching.length > 0) {
         matching.forEach(rule => {
           allocated.push({
@@ -878,8 +847,12 @@ function buildDashboardPayload() {
     };
 
     let done = false;
-    if (SHARED[cust] && cat) {
-      const matching = SHARED[cust].filter(rule => rule.cat === cat);
+    if (SHARED[cust] && mat) {
+      const scat = SUBBRAND_CAT[mat.sb];
+      const matching = SHARED[cust].filter(rule => {
+        const rc = String(rule.cat || '').trim().toUpperCase();
+        return rc === String(cat || '').trim().toUpperCase() || (scat && rc === scat);
+      });
       if (matching.length > 0) {
         matching.forEach(rule => addToSr(rule.sr, sales * rule.w));
         done = true;
@@ -1065,8 +1038,8 @@ function buildDashboardPayload() {
           const cn = catNet[cs] || { PND: 0, MND: 0 };
           const picked = {};
           if (asg) {
-            if (cn.PND > 0 && asg.pnd) picked[asg.pnd] = true;
-            if (cn.MND > 0 && asg.mnd) picked[asg.mnd] = true;
+            if (cn.PND > 0) asg.pnd.forEach(function (sr) { picked[sr] = true; });
+            if (cn.MND > 0) asg.mnd.forEach(function (sr) { picked[sr] = true; });
           }
           srs = Object.keys(picked).map(Number);
           if (srs.length === 0) {
@@ -1407,12 +1380,10 @@ function buildDashboardPayload() {
 
   const customers = [];
   Object.keys(custDict).forEach(c => {
-    const asg = custAssign[Number(c)] || null;
-    const asgSrs = asg ? [asg.pnd, asg.mnd].filter(function (x) { return x; }) : [];
     customers.push({
       c: Number(c), n: custDict[c].name,
       f: custDict[c].flm, sr: custDict[c].sr,
-      asg: asgSrs,
+      asg: assignedSrs(Number(c)),
     });
   });
 
@@ -1457,14 +1428,12 @@ function buildDashboardPayload() {
     const sales = numVal(r['Total Act. Sales']);
     if (!custMonthly[c]) {
       const srFirst = firstSr(r);
-      const asg = custAssign[c] || null;
-      const asgSrs = asg ? [asg.pnd, asg.mnd].filter(function (x) { return x; }) : [];
       custMonthly[c] = {
         c: c,
         n: r['Customer Name'] || ('Customer ' + c),
         sr: srMatch[srFirst] || (custDict[c] && custDict[c].sr) || null,
         f: normFlm(r['FLM']) || (custDict[c] && custDict[c].flm) || null,
-        asg: asgSrs,      // assigned PND/MND reps — so filtering by them shows this outlet
+        asg: assignedSrs(c),   // assigned PND/MND reps — filtering by them shows this outlet
         p: {},
       };
     }
@@ -1523,90 +1492,30 @@ function readSheet(ss, name) {
   return rows;
 }
 
-// Diagnostic: open the web-app URL with ?action=debugNa. Shows which tab (if any)
-// was accepted as the NA assignment table, a sample, and the first two rows of
-// EVERY tab so the real table can be located if auto-detection can't find it.
+// Diagnostic: open the web-app URL with ?action=debugNa. Reports the PND/MND
+// assignment derived from the Shared_Customers tab (Customer Code, SR Code,
+// Category=PND|MND, Weight) so you can confirm reps are being read correctly.
 function debugNaAssign() {
-  const out = { detectedTab: null, rowCount: 0, sample: [], tabHeads: {} };
+  const out = { source: 'Shared_Customers', customersAssigned: 0, sample: [] };
   try {
     const ss = SpreadsheetApp.openById(SHEET_IDS.ims);
-    const res = readNaAssign_(ss, true);
-    out.detectedTab = res.tab;
-    out.rowCount = Object.keys(res.map).length;
-    Object.keys(res.map).slice(0, 15).forEach(function (code) {
-      out.sample.push({ code: Number(code), pnd: res.map[code].pnd, mnd: res.map[code].mnd });
+    const rows = readSheet(ss, TAB_NAMES.shared);
+    const map = {};
+    rows.forEach(function (r) {
+      const c = Number(r['Customer Code']);
+      const sr = Number(r['SR Code']);
+      const cat = String(r['Category'] || '').trim().toUpperCase();
+      if (!c || !sr || (cat !== 'PND' && cat !== 'MND')) return;
+      if (!map[c]) map[c] = { name: r['Customer Name'] || '', pnd: [], mnd: [] };
+      const arr = cat === 'PND' ? map[c].pnd : map[c].mnd;
+      if (arr.indexOf(sr) < 0) arr.push(sr);
     });
-    ss.getSheets().forEach(function (sh) {
-      const v = sh.getDataRange().getValues();
-      const clip = function (row) { return (row || []).slice(0, 8).map(function (x) { return String(x).slice(0, 24); }); };
-      out.tabHeads[sh.getName()] = { row0: clip(v[0]), row1: clip(v[1]) };
+    out.customersAssigned = Object.keys(map).length;
+    Object.keys(map).slice(0, 20).forEach(function (c) {
+      out.sample.push({ code: Number(c), name: map[c].name, pnd: map[c].pnd, mnd: map[c].mnd });
     });
   } catch (e) { out.error = e.message; }
   return out;
-}
-
-// Category tokens that must NOT be mistaken for a rep name (guards against tabs
-// that merely have "PND"/"MND"/sub-brand cells, like target/category sheets).
-var NA_CATEGORY_TOKENS = {
-  'PND':1,'MND':1,'SM':1,'SIM':1,'STC':1,'PRO':1,'ENS':1,'GLU':1,'PED':1,
-  'RPB':1,'PWD':1,'ENS PWD':1,'ENS RPB':1,'GLU PWD':1,'GLU RPB':1,
-  'PED PWD':1,'PED RPB':1,'ETHICAL':1,'TRADE':1
-};
-function looksLikeRepName_(v) {
-  const s = String(v == null ? '' : v).trim();
-  if (s.length < 3) return false;
-  if (/\d/.test(s)) return false;                       // codes/numbers aren't names
-  if (NA_CATEGORY_TOKENS[s.toUpperCase()]) return false; // "MND", "SM", etc.
-  return /[A-Za-z]/.test(s);
-}
-
-// Reads the "NA Name" assignment table:  HCO Code | HCO Name | NA Name(PND|MND).
-// Scans every tab and accepts the FIRST that has a "PND" and an "MND" header cell
-// AND at least 3 data rows whose PND/MND cells are real rep NAMES (not category
-// codes). Handles the 2-row header (merged "NA Name" over PND/MND).
-// Returns { hcoCode(Number): { pnd, mnd } } normally, or { map, tab } when
-// wantTab is true (for the debug endpoint).
-function readNaAssign_(ss, wantTab) {
-  const sheets = ss.getSheets();
-  for (let s = 0; s < sheets.length; s++) {
-    const values = sheets[s].getDataRange().getValues();
-    if (values.length < 2) continue;
-    let pndCol = -1, mndCol = -1, codeCol = -1, headerRow = -1;
-    const scan = Math.min(6, values.length);
-    for (let ri = 0; ri < scan; ri++) {
-      const row = values[ri];
-      for (let ci = 0; ci < row.length; ci++) {
-        const cell = String(row[ci]).trim().toUpperCase();
-        if (cell === 'PND') pndCol = ci;
-        else if (cell === 'MND') mndCol = ci;
-        else if (cell === 'HCO CODE' || cell === 'CUSTOMER CODE' || cell === 'CODE') codeCol = ci;
-      }
-      if (pndCol >= 0 && mndCol >= 0) { headerRow = ri; break; }
-    }
-    if (pndCol < 0 || mndCol < 0) continue;             // no PND/MND header
-    if (codeCol < 0) codeCol = 0;                        // fall back to first column
-    const map = {};
-    let nameRows = 0;
-    for (let ri = headerRow + 1; ri < values.length; ri++) {
-      const row = values[ri];
-      const code = Number(row[codeCol]);
-      if (!code) continue;
-      const pndRaw = row[pndCol], mndRaw = row[mndCol];
-      const pnd = looksLikeRepName_(pndRaw) ? String(pndRaw).trim() : '';
-      const mnd = looksLikeRepName_(mndRaw) ? String(mndRaw).trim() : '';
-      if (!pnd && !mnd) continue;
-      nameRows++;
-      if (!map[code]) map[code] = { pnd: '', mnd: '' };
-      if (pnd) map[code].pnd = pnd;
-      if (mnd) map[code].mnd = mnd;
-    }
-    // Only accept a tab that actually holds rep names — this rejects category/
-    // target tabs whose PND/MND cells contain codes like "MND".
-    if (nameRows >= 3) {
-      return wantTab ? { map: map, tab: sheets[s].getName() } : map;
-    }
-  }
-  return wantTab ? { map: {}, tab: null } : {};
 }
 
 // =============================================================================
