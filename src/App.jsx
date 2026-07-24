@@ -733,7 +733,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R17 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R18 ✓</span>
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1019,11 +1019,13 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
           {(() => {
             // FLM × coverage KPIs (Shop Around, Active 1M, NU, L&L) — Target/Actual/%.
+            // Rule: no target (Tgt = 0) → hide the Actual (and don't count it in the
+            // FLM/total), since we don't track that KPI for that SR this month.
             const kc = (t, a) => {
               const p = pct(a, t);
               return (<React.Fragment>
                 <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb"}}>{fmt(t)}</td>
-                <td style={tdStyleR}>{fmt(a)}</td>
+                <td style={tdStyleR}>{t > 0 ? fmt(a) : "—"}</td>
                 <td style={{...tdStyleR, color:pctColor(p), fontWeight:600}}>{t > 0 ? p.toFixed(0)+"%" : "—"}</td>
               </React.Fragment>);
             };
@@ -1038,18 +1040,19 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                 llT: llTM.bySr[s.code] || 0, llA: llAM.bySr[s.code] || 0,
               };
             };
+            const KKEYS = [["shopT","shopA"],["a1T","a1A"],["nuT","nuA"],["llT","llA"]];
             const rows = (flmList).map(f => {
-              const cov = C.flmCoverage.find(c => c.flm === f) || { shopT:0, shopA:0, leadT:0, leadA:0 };
               const srs = RAW.srs
                 .filter(s => s.flm === f && (srMatch(s.code)))
                 .map(srCov);
-              return {
-                flm: f, srs: srs,
-                shopT: cov.shopT || 0, shopA: cov.shopA || 0,
-                a1T: active1TM.byFlm[f] || 0, a1A: active1AM.byFlm[f] || 0,
-                nuT: cov.leadT || 0, nuA: cov.leadA || 0,
-                llT: llTM.byFlm[f] || 0, llA: llAM.byFlm[f] || 0,
-              };
+              const row = { flm: f, srs: srs };
+              // FLM target = sum of SR targets; FLM actual = sum of SR actuals that HAVE a target.
+              KKEYS.forEach(([tk, ak]) => {
+                let t = 0, a = 0;
+                srs.forEach(s => { t += s[tk]; if (s[tk] > 0) a += s[ak]; });
+                row[tk] = t; row[ak] = a;
+              });
+              return row;
             });
             const tot = rows.reduce((s, r) => ({
               shopT:s.shopT+r.shopT, shopA:s.shopA+r.shopA, a1T:s.a1T+r.a1T, a1A:s.a1A+r.a1A,
