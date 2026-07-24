@@ -761,7 +761,10 @@ function buildDashboardPayload() {
   Object.keys(aggMap).forEach(key => {
     const parts = key.split('|');
     const v = Math.round(aggMap[key]);
-    if (v > 0) actuals.push({
+    // Net sales INCLUDE returns/credit notes (negatives) — keep every non-zero
+    // bucket, even net-negative ones, so KPI totals match the true net figure.
+    // (Active 1-mo/3-mo keep their own net-positive logic elsewhere.)
+    if (v !== 0) actuals.push({
       m: Number(parts[0]),
       sr: Number(parts[1]),
       f: parts[2] === 'null' || parts[2] === 'undefined' ? null : parts[2],
