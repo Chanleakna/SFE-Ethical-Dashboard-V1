@@ -8,6 +8,10 @@ import {
 // Replace with your Apps Script Web App URL (ends in /exec)
 const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5Dwaq1E-0cgOrn7CKIcRW8PMJuzywqH5WQIXWfQ7JKXiei/exec";
 
+// Version tag shown in the header. Keep in step with CODE_VERSION in
+// APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
+const BUILD_TAG = "R22";
+
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
 // sheet and the chance of catching a mid-rebuild partial read.
@@ -733,7 +737,18 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             {MONTH_NAMES[month-1]}-{String(year).slice(2)} · {C.srs.length} SRs in scope ·
             refreshed {lastRefresh.toLocaleTimeString()}
             <span style={{ marginLeft: 8, padding: "1px 6px", background: "#dcfce7",
-              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build R18 ✓</span>
+              color: "#166534", borderRadius: 4, fontWeight: 600 }}>build {BUILD_TAG} ✓</span>
+            {(() => {
+              const dv = RAW.codeVersion;
+              const ok = dv === BUILD_TAG;
+              return (
+                <span title={ok ? "Backend logic is up to date" : "Backend is behind — it will catch up automatically within ~10 min, or click Refresh / open ?action=clearCache to force it now"}
+                  style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
+                    background: ok ? "#dcfce7" : "#fef3c7", color: ok ? "#166534" : "#92400e" }}>
+                  data {dv || "?"} {ok ? "✓" : "⟳ updating…"}
+                </span>
+              );
+            })()}
           </p>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -3046,7 +3061,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
         let scoped = rows;
         if (!allFlm) scoped = scoped.filter(r => flmMatch(r.f));
-        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr));
+        // Match the customer's own SR OR any assigned PND/MND rep, so filtering by
+        // an assigned rep surfaces every outlet they're responsible for.
+        if (!allSr) scoped = scoped.filter(r => srMatch(r.sr) || (r.asg || []).some(srMatch));
         if (custSearch.trim()) {
           const q = custSearch.trim().toLowerCase();
           scoped = scoped.filter(r => String(r.c).includes(q) || String(r.n || "").toLowerCase().includes(q));
