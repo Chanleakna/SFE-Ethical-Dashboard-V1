@@ -1523,29 +1523,50 @@ function readSheet(ss, name) {
   return rows;
 }
 
-// Diagnostic: confirm the NA Name assignment table is being read. Open the
-// web-app URL with ?action=debugNa to see how many rows were found and a sample.
+// Diagnostic: open the web-app URL with ?action=debugNa. Shows which tab (if any)
+// was accepted as the NA assignment table, a sample, and the first two rows of
+// EVERY tab so the real table can be located if auto-detection can't find it.
 function debugNaAssign() {
-  const out = { tabsScanned: [], detectedTab: null, rowCount: 0, sample: [] };
+  const out = { detectedTab: null, rowCount: 0, sample: [], tabHeads: {} };
   try {
     const ss = SpreadsheetApp.openById(SHEET_IDS.ims);
-    ss.getSheets().forEach(function (sh) { out.tabsScanned.push(sh.getName()); });
-    const map = readNaAssign_(ss);
-    out.rowCount = Object.keys(map).length;
-    Object.keys(map).slice(0, 15).forEach(function (code) {
-      out.sample.push({ code: Number(code), pnd: map[code].pnd, mnd: map[code].mnd });
+    const res = readNaAssign_(ss, true);
+    out.detectedTab = res.tab;
+    out.rowCount = Object.keys(res.map).length;
+    Object.keys(res.map).slice(0, 15).forEach(function (code) {
+      out.sample.push({ code: Number(code), pnd: res.map[code].pnd, mnd: res.map[code].mnd });
+    });
+    ss.getSheets().forEach(function (sh) {
+      const v = sh.getDataRange().getValues();
+      const clip = function (row) { return (row || []).slice(0, 8).map(function (x) { return String(x).slice(0, 24); }); };
+      out.tabHeads[sh.getName()] = { row0: clip(v[0]), row1: clip(v[1]) };
     });
   } catch (e) { out.error = e.message; }
   return out;
 }
 
+// Category tokens that must NOT be mistaken for a rep name (guards against tabs
+// that merely have "PND"/"MND"/sub-brand cells, like target/category sheets).
+var NA_CATEGORY_TOKENS = {
+  'PND':1,'MND':1,'SM':1,'SIM':1,'STC':1,'PRO':1,'ENS':1,'GLU':1,'PED':1,
+  'RPB':1,'PWD':1,'ENS PWD':1,'ENS RPB':1,'GLU PWD':1,'GLU RPB':1,
+  'PED PWD':1,'PED RPB':1,'ETHICAL':1,'TRADE':1
+};
+function looksLikeRepName_(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s.length < 3) return false;
+  if (/\d/.test(s)) return false;                       // codes/numbers aren't names
+  if (NA_CATEGORY_TOKENS[s.toUpperCase()]) return false; // "MND", "SM", etc.
+  return /[A-Za-z]/.test(s);
+}
+
 // Reads the "NA Name" assignment table:  HCO Code | HCO Name | NA Name(PND|MND).
-// It scans every tab in the spreadsheet and picks the one whose header area has
-// both a "PND" and an "MND" cell plus a code column — so the exact tab name isn't
-// needed. Handles the 2-row header (merged "NA Name" spanning the PND/MND columns).
-// Returns { hcoCode(Number): { pnd: 'Rep Name'|'', mnd: 'Rep Name'|'' } }.
-function readNaAssign_(ss) {
-  const map = {};
+// Scans every tab and accepts the FIRST that has a "PND" and an "MND" header cell
+// AND at least 3 data rows whose PND/MND cells are real rep NAMES (not category
+// codes). Handles the 2-row header (merged "NA Name" over PND/MND).
+// Returns { hcoCode(Number): { pnd, mnd } } normally, or { map, tab } when
+// wantTab is true (for the debug endpoint).
+function readNaAssign_(ss, wantTab) {
   const sheets = ss.getSheets();
   for (let s = 0; s < sheets.length; s++) {
     const values = sheets[s].getDataRange().getValues();
@@ -1562,22 +1583,30 @@ function readNaAssign_(ss) {
       }
       if (pndCol >= 0 && mndCol >= 0) { headerRow = ri; break; }
     }
-    if (pndCol < 0 || mndCol < 0) continue;             // not the NA table
+    if (pndCol < 0 || mndCol < 0) continue;             // no PND/MND header
     if (codeCol < 0) codeCol = 0;                        // fall back to first column
+    const map = {};
+    let nameRows = 0;
     for (let ri = headerRow + 1; ri < values.length; ri++) {
       const row = values[ri];
       const code = Number(row[codeCol]);
       if (!code) continue;
-      const pnd = String(row[pndCol] == null ? '' : row[pndCol]).trim();
-      const mnd = String(row[mndCol] == null ? '' : row[mndCol]).trim();
+      const pndRaw = row[pndCol], mndRaw = row[mndCol];
+      const pnd = looksLikeRepName_(pndRaw) ? String(pndRaw).trim() : '';
+      const mnd = looksLikeRepName_(mndRaw) ? String(mndRaw).trim() : '';
       if (!pnd && !mnd) continue;
+      nameRows++;
       if (!map[code]) map[code] = { pnd: '', mnd: '' };
       if (pnd) map[code].pnd = pnd;
       if (mnd) map[code].mnd = mnd;
     }
-    if (Object.keys(map).length) break;                 // found & parsed the table
+    // Only accept a tab that actually holds rep names — this rejects category/
+    // target tabs whose PND/MND cells contain codes like "MND".
+    if (nameRows >= 3) {
+      return wantTab ? { map: map, tab: sheets[s].getName() } : map;
+    }
   }
-  return map;
+  return wantTab ? { map: {}, tab: null } : {};
 }
 
 // =============================================================================
