@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R26";
+const BUILD_TAG = "R27";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1025,11 +1025,37 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                     </td>
                     <td style={{...tdStyle, borderLeft:"1px solid #e5e7eb"}}><Bar2 pct={overallPct} /></td>
                   </tr>
+                  {(() => {
+                    // Reconcile the KPI-tracked total to the full Ethical Sales headline.
+                    // The gap = Ethical sales on non-KPI products (or rows whose seller
+                    // name didn't match an SR) — counted in Sales, no KPI column to sit in.
+                    const other = Math.round(C.salesActualFull - C.totalActual);
+                    if (Math.abs(other) < 1) return null;
+                    return (
+                      <>
+                        <tr style={{background:"#fffdf5"}}>
+                          <td style={{...tdStyle, color:"#92400e", fontStyle:"italic"}}>
+                            ↳ Other Ethical (non-KPI products / unmatched rep)
+                          </td>
+                          <td style={tdStyleR}>—</td>
+                          <td style={{...tdStyleR, color:"#92400e"}}>{fmt(other)}</td>
+                          <td style={tdStyleR} colSpan={9}></td>
+                        </tr>
+                        <tr style={{background:"#f0fdf4", fontWeight:700}}>
+                          <td style={{...tdStyle, color:"#166534"}}>= SALES (full Ethical, ties to headline)</td>
+                          <td style={tdStyleR}>{fmt(C.totalTarget)}</td>
+                          <td style={{...tdStyleR, color:"#166534"}}>{fmt(C.salesActualFull)}</td>
+                          <td style={tdStyleR} colSpan={9}></td>
+                        </tr>
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
             <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
               MND = ENS PWD · ENS RPB · GLU PWD · GLU RPB · PRO &nbsp;·&nbsp; PND = SM · SIM · STC · PED PWD · PED RPB
+              <br />TOTAL = the 10 tracked KPI sub-brands. "Other Ethical" = sales on non-KPI products or rows whose rep name didn't match — counted in the Sales headline but with no KPI column. TOTAL + Other = Sales.
             </div>
           </Panel>
 
