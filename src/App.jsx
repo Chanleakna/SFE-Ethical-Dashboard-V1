@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R22";
+const BUILD_TAG = "R23";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -2483,6 +2483,63 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                       })}
                     </tbody>
                   </table>
+                </Panel>
+              );
+            })()}
+            {(() => {
+              // Outlets that are active (had PND/MND sales this month) but are NOT
+              // in Shared_Customers, so no rep is formally assigned. Shows the
+              // FLM's PND/MND reps (from the Team column) so you know who to add.
+              const rawList = active1AM.unassigned || [];
+              const srByCode = {}; (RAW.srs || []).forEach(s => { srByCode[s.code] = s; });
+              const flmCatReps = RAW.flmCatReps || {};
+              let list = rawList.filter(r => allFlm || flmMatch(r.f));
+              list = list.slice().sort((a, b) => (b.pnd + b.mnd) - (a.pnd + a.mnd));
+              const repNames = (arr) => (arr || []).map(x => x.name).join(", ") || "—";
+              return (
+                <Panel title={"⚠️ Unassigned active outlets (" + list.length + ") — had PND/MND sales but not in Shared_Customers"}>
+                  <div style={{fontSize:11, color:"#6b7280", marginBottom:8}}>
+                    These outlets are active but no rep is formally assigned, so they currently fall back to whoever booked the sale.
+                    To credit the right rep, add a row in <b>Shared_Customers</b> (Customer Code · SR Code · Category · Weight · SR Name · Customer Name)
+                    using the FLM's PND/MND rep shown here.
+                  </div>
+                  {list.length === 0 ? (
+                    <div style={{fontSize:12, color:"#16a34a", padding:"6px 2px"}}>✓ Every active outlet in scope is assigned in Shared_Customers.</div>
+                  ) : (
+                  <div style={{overflowX:"auto"}}>
+                  <table style={tblStyle}>
+                    <thead><tr style={{background:"#f9fafb"}}>
+                      <th style={thStyle}>Outlet</th>
+                      <th style={thStyle}>FLM</th>
+                      <th style={thStyleR}>PND</th>
+                      <th style={thStyleR}>MND</th>
+                      <th style={thStyle}>Counts for now</th>
+                      <th style={thStyle}>Assign to (PND rep)</th>
+                      <th style={thStyle}>Assign to (MND rep)</th>
+                    </tr></thead>
+                    <tbody>
+                      {list.map(r => {
+                        const cat = flmCatReps[r.f] || { PND: [], MND: [] };
+                        const now = r.sr ? ((srByCode[r.sr] && srByCode[r.sr].name) || ("SR " + r.sr)) : "—";
+                        return (
+                          <tr key={r.c} style={{borderTop:"1px solid #f3f4f6"}}>
+                            <td style={tdStyle}>
+                              {r.n}
+                              <span style={{fontFamily:"monospace", color:"#9ca3af", fontSize:10, marginLeft:6}}>{r.c}</span>
+                            </td>
+                            <td style={{...tdStyle, fontSize:11, color:"#6b7280"}}>{r.f || "—"}</td>
+                            <td style={{...tdStyleR, color: r.pnd > 0 ? "#111827" : "#d1d5db"}}>{r.pnd > 0 ? fmt(r.pnd) : "—"}</td>
+                            <td style={{...tdStyleR, color: r.mnd > 0 ? "#111827" : "#d1d5db"}}>{r.mnd > 0 ? fmt(r.mnd) : "—"}</td>
+                            <td style={{...tdStyle, fontSize:11, color:"#6b7280"}}>{now}</td>
+                            <td style={{...tdStyle, fontSize:11, color: r.pnd > 0 ? "#7c3aed" : "#d1d5db"}}>{r.pnd > 0 ? repNames(cat.PND) : "—"}</td>
+                            <td style={{...tdStyle, fontSize:11, color: r.mnd > 0 ? "#0d9488" : "#d1d5db"}}>{r.mnd > 0 ? repNames(cat.MND) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  </div>
+                  )}
                 </Panel>
               );
             })()}

@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R22';
+const CODE_VERSION = 'R23';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -680,6 +680,29 @@ function buildDashboardPayload() {
   };
   Logger.log('custAssign size: ' + Object.keys(custAssign).length);
 
+  // SR "Team" designation (PND / MND / PP-Hybrid / PV-Hybrid) from the L&L tabs
+  // (columns FLM, ID, Name/SKU, Team) — the authoritative "who handles which
+  // category" list. Used to show, per FLM, which PND/MND reps an unassigned
+  // outlet could be given to.
+  const srTeam = {};        // srCode -> 'PND' | 'MND' | 'PP-HYBRID' | 'PV-HYBRID'
+  [].concat(llTarget || [], llActual || []).forEach(function (r) {
+    const id = Number(r['ID']);
+    const team = String(r['Team'] || '').trim().toUpperCase();
+    if (!id || !team || srTeam[id]) return;
+    srTeam[id] = team;
+  });
+  const flmCatReps = {};    // flm -> { PND:[{code,name}], MND:[{code,name}] }
+  Object.keys(srTeam).forEach(function (code) {
+    const c = Number(code);
+    const cat = srTeam[c] === 'PND' ? 'PND' : (srTeam[c] === 'MND' ? 'MND' : null);
+    if (!cat) return;
+    const flm = srToFlm[c];
+    if (!flm) return;
+    if (!flmCatReps[flm]) flmCatReps[flm] = { PND: [], MND: [] };
+    const srObj = srMaster.filter(function (s) { return s.code === c; })[0];
+    flmCatReps[flm][cat].push({ code: c, name: (srObj && srObj.name) || ('SR ' + c) });
+  });
+
   // MONTH_MAP handles BOTH 'Apr' and 'April' (your data has both spellings)
   const MONTH_MAP = {Jan:1,Feb:2,Mar:3,April:4,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
   // Robust month parser: accepts 'Jun', 'June', 'JUNE', ' june ', 'Sept', etc.
@@ -1025,6 +1048,7 @@ function buildDashboardPayload() {
       Object.keys(custNet).forEach(c => { if (custNet[c] > 0 && !EXCLUDED_CUST_CODES[c]) custs[c] = true; });
       const flmCount = {}, srCount = {};
       const custSrsMap = {};
+      const unassigned = [];  // active outlets with PND/MND sales NOT in Shared_Customers
       Object.keys(custs).forEach(cs => {
         const c = Number(cs);
         let srs;
@@ -1067,6 +1091,21 @@ function buildDashboardPayload() {
           if (srs.length === 0 && custDict[c] && custDict[c].sr) srs = [custDict[c].sr];
           srs = srs.filter(function (v, i) { return srs.indexOf(v) === i; });
         }
+        // Flag active outlets that have PND/MND sales but no Shared_Customers entry,
+        // so the dashboard can list who still needs a rep assigned.
+        if (mode === 'assigned' && !custAssign[c]) {
+          const cnU = catNet[cs] || { PND: 0, MND: 0 };
+          if (cnU.PND > 0 || cnU.MND > 0) {
+            unassigned.push({
+              c: c,
+              n: (custDict[c] && custDict[c].name) || ('Customer ' + c),
+              f: (custDict[c] && custDict[c].flm) || (srs[0] ? srToFlm[srs[0]] : null),
+              pnd: Math.round(cnU.PND),
+              mnd: Math.round(cnU.MND),
+              sr: srs[0] || null,   // who it currently falls back to (top seller)
+            });
+          }
+        }
         if (srs.length === 0) { flmCount['Unassigned'] = (flmCount['Unassigned'] || 0) + 1; return; }
         custSrsMap[c] = srs;
         srs.forEach(sr => {
@@ -1086,6 +1125,7 @@ function buildDashboardPayload() {
         byFlm: flmCount, bySr: srCount,
         customers: Object.keys(custs).map(Number),
         custSrs: custSrsMap,
+        unassigned: unassigned,
       };
     });
     return out;
@@ -1475,6 +1515,8 @@ function buildDashboardPayload() {
     subBrandCategory: subBrandCategory,
     sharedCustomers: SHARED,
     custAssign: custAssign,
+    srTeam: srTeam,
+    flmCatReps: flmCatReps,
     codeVersion: CODE_VERSION,
     generatedAt: new Date().toISOString(),
   };

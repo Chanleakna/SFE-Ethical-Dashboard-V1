@@ -34,25 +34,42 @@ function _json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// Records why the last fetch attempt failed, so errors are actionable instead of
+// a generic "fetch failed". Populated by fetchLogicSource_ / loaderDiag_.
+var LAST_FETCH_DIAG = [];
+
 // Fetch the logic source, preferring the short cache so most requests skip the
 // network. Returns the source string, or null if nothing could be fetched.
 function fetchLogicSource_() {
   var cache = CacheService.getScriptCache();
   var cached = cache.get(LOGIC_SRC_CACHE);
   if (cached) return cached;
+  LAST_FETCH_DIAG = [];
   for (var i = 0; i < LOGIC_URLS.length; i++) {
     try {
       var resp = UrlFetchApp.fetch(LOGIC_URLS[i], { muteHttpExceptions: true, followRedirects: true });
-      if (resp.getResponseCode() === 200) {
-        var txt = resp.getContentText();
-        if (txt && txt.indexOf('buildDashboardPayload') >= 0) {
-          cache.put(LOGIC_SRC_CACHE, txt, LOGIC_SRC_TTL);
-          return txt;
-        }
+      var code = resp.getResponseCode();
+      var txt = resp.getContentText();
+      var hasMarker = !!(txt && txt.indexOf('buildDashboardPayload') >= 0);
+      LAST_FETCH_DIAG.push({ url: LOGIC_URLS[i], code: code, hasMarker: hasMarker });
+      if (code === 200 && hasMarker) {
+        cache.put(LOGIC_SRC_CACHE, txt, LOGIC_SRC_TTL);
+        return txt;
       }
-    } catch (e) { /* try the next URL */ }
+    } catch (e) {
+      LAST_FETCH_DIAG.push({ url: LOGIC_URLS[i], error: String(e && e.message || e) });
+    }
   }
   return null;
+}
+
+// ?action=loaderDiag — shows the exact per-URL result so we can see whether the
+// fetch is blocked (permission), 404, or a redirect.
+function loaderDiag_() {
+  CacheService.getScriptCache().remove(LOGIC_SRC_CACHE);
+  var src = fetchLogicSource_();
+  return { ok: !!src, attempts: LAST_FETCH_DIAG,
+           hasCachedFallback: !!PropertiesService.getScriptProperties().getProperty(LOGIC_PROP_KEY) };
 }
 
 // Compile the source into a module object exposing the functions the loader
@@ -96,13 +113,15 @@ function loadLogic_() {
   }
   var cached = props.getProperty(LOGIC_PROP_KEY);
   if (cached) return compileLogic_(cached);
-  throw new Error('No backend logic available (fetch failed and no cached copy).');
+  var why = LAST_FETCH_DIAG.length ? JSON.stringify(LAST_FETCH_DIAG) : '(no fetch attempts recorded)';
+  throw new Error('No backend logic available. Fetch attempts: ' + why);
 }
 
 function doGet(e) {
   try {
     var action = e && e.parameter && e.parameter.action;
-    if (action === 'loaderPing') return _json_({ ok: true, loader: 'v1', urls: LOGIC_URLS });
+    if (action === 'loaderPing') return _json_({ ok: true, loader: 'v2', urls: LOGIC_URLS });
+    if (action === 'loaderDiag') return _json_(loaderDiag_());
     // clearCache forces a fresh pull of both the code and the data.
     if (action === 'clearCache') CacheService.getScriptCache().remove(LOGIC_SRC_CACHE);
 
@@ -137,3 +156,12 @@ function importDailyFromEmail()  { var m = loadLogic_(); return m.importDailyFro
 
 // Run this ONCE from the editor (Run menu) to install the auto-refresh triggers.
 function setupAutoRefresh() { return loadLogic_().setupAutoRefresh(); }
+
+// RUN THIS from the editor to diagnose loading. It prints, for each source URL,
+// the HTTP code (or the exact error) so we can see whether the fetch is blocked
+// by permissions, 404, etc. Look at the Execution log after running.
+function testLoaderFetch() {
+  var d = loaderDiag_();
+  Logger.log(JSON.stringify(d, null, 2));
+  return d;
+}
