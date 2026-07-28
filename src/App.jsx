@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R31";
+const BUILD_TAG = "R32";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -675,7 +675,12 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const activeTotalT = C.flmCoverage.reduce((s, r) => s + r.activeT, 0);
   const newTotal = C.flmCoverage.reduce((s, r) => s + r.newA, 0);
   const newTotalT = C.flmCoverage.reduce((s, r) => s + r.newT, 0);
-  const shopTotal = C.shopItems.reduce((s, x) => s + x.v, 0);
+  // Shop Around actual is gated at SR level (an SR's actual counts only when it
+  // has a target) so the headline card matches the Summary Coverage matrix and
+  // the Shop Around tab. No-target SRs/FLMs contribute zero.
+  const shopBySr = {};
+  C.shopItems.forEach(x => { const g = shopBySr[x.sr] || (shopBySr[x.sr] = { t: 0, v: 0 }); g.t += x.t; g.v += x.v; });
+  const shopTotal = Object.keys(shopBySr).reduce((s, k) => s + (shopBySr[k].t > 0 ? shopBySr[k].v : 0), 0);
   const shopTotalT = C.shopItems.reduce((s, x) => s + x.t, 0);
   const leadTotal = C.flmCoverage.reduce((s, r) => s + r.leadT, 0);
   const leadActualTotal = C.flmCoverage.reduce((s, r) => s + r.leadA, 0);
@@ -1785,20 +1790,26 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       {/* ============ SHOP AROUND ============ */}
       {tab === "shop" && (() => {
         const items = C.shopItems;
-        const totT = items.reduce((s, x) => s + x.t, 0);
-        const totA = items.reduce((s, x) => s + x.v, 0);
         const flmList = allFlm ? (RAW.flms || []) : flmSel;
 
-        // Per-FLM and per-SR rollups
+        // Per-FLM and per-SR rollups. Rule (same as the Summary Coverage matrix):
+        // an SR's actual only counts when that SR has a Shop Around target — so a
+        // no-target SR (or whole FLM) shows zero actual and is excluded from totals.
         const flmRows = flmList.map(f => {
           const fis = items.filter(x => x.f === f);
-          return {
-            flm: f, srs: [...new Set(fis.map(x => x.sr))],
-            target: fis.reduce((s, x) => s + x.t, 0),
-            actual: fis.reduce((s, x) => s + x.v, 0),
-            customers: fis,
-          };
-        }).filter(r => r.target > 0 || r.actual > 0);
+          const srCodes = [...new Set(fis.map(x => x.sr))];
+          let target = 0, actual = 0, actualRaw = 0;
+          srCodes.forEach(srCode => {
+            const si = fis.filter(x => x.sr === srCode);
+            const srT = si.reduce((s, x) => s + x.t, 0);
+            const srA = si.reduce((s, x) => s + x.v, 0);
+            target += srT; actualRaw += srA;
+            if (srT > 0) actual += srA;   // gate: count the SR's actual only if it has a target
+          });
+          return { flm: f, srs: srCodes, target, actual, actualRaw, customers: fis };
+        }).filter(r => r.target > 0 || r.actualRaw > 0);
+        const totT = flmRows.reduce((s, r) => s + r.target, 0);
+        const totA = flmRows.reduce((s, r) => s + r.actual, 0);
 
         return (
           <>
@@ -1848,7 +1859,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                         <td style={tdStyleR}>{fmt(f.target)}</td>
                         <td style={tdStyleR}>{fmt(f.actual)}</td>
                         <td style={{...tdStyleR, color:pctColor(pct(f.actual, f.target)), fontWeight:700}}>
-                          {pct(f.actual, f.target).toFixed(1)}%
+                          {f.target > 0 ? pct(f.actual, f.target).toFixed(1)+"%" : "—"}
                         </td>
                         <td style={tdStyle}><Bar2 pct={pct(f.actual, f.target)} /></td>
                       </tr>
@@ -1856,7 +1867,8 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                         const sr = RAW.srs.find(s => s.code === srCode);
                         const srItems = f.customers.filter(x => x.sr === srCode);
                         const srT = srItems.reduce((s, x) => s + x.t, 0);
-                        const srA = srItems.reduce((s, x) => s + x.v, 0);
+                        const srARaw = srItems.reduce((s, x) => s + x.v, 0);
+                        const srA = srT > 0 ? srARaw : 0;   // gate: no target → zero actual
                         return (
                           <React.Fragment key={srCode}>
                             <tr style={{borderTop:"1px solid #f3f4f6", cursor:"pointer"}}
@@ -1879,7 +1891,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                               <td style={tdStyleR}>{fmt(srT)}</td>
                               <td style={tdStyleR}>{fmt(srA)}</td>
                               <td style={{...tdStyleR, color:pctColor(pct(srA, srT)), fontWeight:600}}>
-                                {pct(srA, srT).toFixed(1)}%
+                                {srT > 0 ? pct(srA, srT).toFixed(1)+"%" : "—"}
                               </td>
                               <td style={tdStyle}><Bar2 pct={pct(srA, srT)} /></td>
                             </tr>
