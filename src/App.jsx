@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R32";
+const BUILD_TAG = "R33";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -548,7 +548,8 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
       // Coverage actuals/targets per SR for current month
       const shopItems = (RAW.shopByMonth[month] || []).filter(x => x.sr === s.code);
       card.shopTarget = shopItems.reduce((s2, x) => s2 + x.t, 0);
-      card.shopActual = shopItems.reduce((s2, x) => s2 + x.v, 0);
+      // Only count a customer's actual when THAT customer has a Shop Around target.
+      card.shopActual = shopItems.reduce((s2, x) => s2 + (x.t > 0 ? x.v : 0), 0);
       card.activeActual = (RAW.activeByMonth[month]?.bySr?.[s.code]) || 0;
       card.activeTarget = (RAW.activeTargetByMonth[month]?.bySr?.[s.code]) || 0;
       card.newActual = (RAW.newByMonth[month]?.bySr?.[s.code]) || 0;
@@ -675,12 +676,10 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
   const activeTotalT = C.flmCoverage.reduce((s, r) => s + r.activeT, 0);
   const newTotal = C.flmCoverage.reduce((s, r) => s + r.newA, 0);
   const newTotalT = C.flmCoverage.reduce((s, r) => s + r.newT, 0);
-  // Shop Around actual is gated at SR level (an SR's actual counts only when it
-  // has a target) so the headline card matches the Summary Coverage matrix and
-  // the Shop Around tab. No-target SRs/FLMs contribute zero.
-  const shopBySr = {};
-  C.shopItems.forEach(x => { const g = shopBySr[x.sr] || (shopBySr[x.sr] = { t: 0, v: 0 }); g.t += x.t; g.v += x.v; });
-  const shopTotal = Object.keys(shopBySr).reduce((s, k) => s + (shopBySr[k].t > 0 ? shopBySr[k].v : 0), 0);
+  // Shop Around actual is gated at CUSTOMER level (only a customer with a target
+  // contributes its actual) so the headline card matches the Summary Coverage
+  // matrix and the Shop Around tab. No-target customers contribute zero.
+  const shopTotal = C.shopItems.reduce((s, x) => s + (x.t > 0 ? x.v : 0), 0);
   const shopTotalT = C.shopItems.reduce((s, x) => s + x.t, 0);
   const leadTotal = C.flmCoverage.reduce((s, r) => s + r.leadT, 0);
   const leadActualTotal = C.flmCoverage.reduce((s, r) => s + r.leadA, 0);
@@ -1798,14 +1797,9 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
         const flmRows = flmList.map(f => {
           const fis = items.filter(x => x.f === f);
           const srCodes = [...new Set(fis.map(x => x.sr))];
-          let target = 0, actual = 0, actualRaw = 0;
-          srCodes.forEach(srCode => {
-            const si = fis.filter(x => x.sr === srCode);
-            const srT = si.reduce((s, x) => s + x.t, 0);
-            const srA = si.reduce((s, x) => s + x.v, 0);
-            target += srT; actualRaw += srA;
-            if (srT > 0) actual += srA;   // gate: count the SR's actual only if it has a target
-          });
+          const target = fis.reduce((s, x) => s + x.t, 0);
+          const actual = fis.reduce((s, x) => s + (x.t > 0 ? x.v : 0), 0);  // gate: only targeted customers count
+          const actualRaw = fis.reduce((s, x) => s + x.v, 0);
           return { flm: f, srs: srCodes, target, actual, actualRaw, customers: fis };
         }).filter(r => r.target > 0 || r.actualRaw > 0);
         const totT = flmRows.reduce((s, r) => s + r.target, 0);
@@ -1867,8 +1861,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                         const sr = RAW.srs.find(s => s.code === srCode);
                         const srItems = f.customers.filter(x => x.sr === srCode);
                         const srT = srItems.reduce((s, x) => s + x.t, 0);
-                        const srARaw = srItems.reduce((s, x) => s + x.v, 0);
-                        const srA = srT > 0 ? srARaw : 0;   // gate: no target → zero actual
+                        const srA = srItems.reduce((s, x) => s + (x.t > 0 ? x.v : 0), 0);  // gate: only targeted customers count
                         return (
                           <React.Fragment key={srCode}>
                             <tr style={{borderTop:"1px solid #f3f4f6", cursor:"pointer"}}
@@ -1905,11 +1898,11 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                                   <span style={{color:"#9ca3af", fontSize:9, marginLeft:6, fontFamily:"monospace"}}>{c.c}</span>
                                 </td>
                                 <td style={tdStyleR}>{fmt(c.t)}</td>
-                                <td style={tdStyleR}>{fmt(c.v)}</td>
+                                <td style={tdStyleR}>{fmt(c.t > 0 ? c.v : 0)}</td>
                                 <td style={{...tdStyleR, color:pctColor(pct(c.v, c.t)), fontWeight:600}}>
                                   {c.t > 0 ? pct(c.v, c.t).toFixed(0) + "%" : "—"}
                                 </td>
-                                <td style={tdStyle}><Bar2 pct={pct(c.v, c.t)} /></td>
+                                <td style={tdStyle}><Bar2 pct={c.t > 0 ? pct(c.v, c.t) : 0} /></td>
                               </tr>
                             ))}
                           </React.Fragment>
