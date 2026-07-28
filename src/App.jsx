@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R30";
+const BUILD_TAG = "R31";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1104,8 +1104,31 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               nuT:s.nuT+r.nuT, nuA:s.nuA+r.nuA, llT:s.llT+r.llT, llA:s.llA+r.llA,
             }), {shopT:0,shopA:0,a1T:0,a1A:0,nuT:0,nuA:0,llT:0,llA:0});
             const grpTh = { ...thStyleR, borderLeft:"1px solid #e5e7eb", textAlign:"center" };
+            const pctStr = (t, a) => t > 0 ? pct(a, t).toFixed(0) + "%" : "";
+            const actNum = (t, a) => t > 0 ? Math.round(a) : "";
+            const exportCov = () => {
+              const out = [];
+              rows.forEach(r => r.srs.forEach(s => {
+                out.push({
+                  "FLM": r.flm, "SR Code": s.code, "SR Name": s.name,
+                  "Shop Around Tgt": Math.round(s.shopT), "Shop Around Act": actNum(s.shopT, s.shopA), "Shop Around %": pctStr(s.shopT, s.shopA),
+                  "Active 1M Tgt": Math.round(s.a1T), "Active 1M Act": actNum(s.a1T, s.a1A), "Active 1M %": pctStr(s.a1T, s.a1A),
+                  "NU Tgt": Math.round(s.nuT), "NU Act": actNum(s.nuT, s.nuA), "NU %": pctStr(s.nuT, s.nuA),
+                  "L&L Tgt": Math.round(s.llT), "L&L Act": actNum(s.llT, s.llA), "L&L %": pctStr(s.llT, s.llA),
+                });
+              }));
+              out.push({
+                "FLM": "TOTAL", "SR Code": "", "SR Name": "",
+                "Shop Around Tgt": Math.round(tot.shopT), "Shop Around Act": Math.round(tot.shopA), "Shop Around %": pctStr(tot.shopT, tot.shopA),
+                "Active 1M Tgt": Math.round(tot.a1T), "Active 1M Act": Math.round(tot.a1A), "Active 1M %": pctStr(tot.a1T, tot.a1A),
+                "NU Tgt": Math.round(tot.nuT), "NU Act": Math.round(tot.nuA), "NU %": pctStr(tot.nuT, tot.nuA),
+                "L&L Tgt": Math.round(tot.llT), "L&L Act": Math.round(tot.llA), "L&L %": pctStr(tot.llT, tot.llA),
+              });
+              exportToExcel(out, `CoverageKPIs_${MONTH_NAMES[month-1]}-${String(year).slice(2)}.xlsx`, "Coverage KPIs");
+            };
             return (
-              <Panel title={"FLM × Coverage KPIs — Shop Around · Active 1M · NU · L&L (" + MONTH_NAMES[month-1] + "-" + String(year).slice(2) + ")"}>
+              <Panel title={"FLM × Coverage KPIs — Shop Around · Active 1M · NU · L&L (" + MONTH_NAMES[month-1] + "-" + String(year).slice(2) + ")"}
+                action={<ExportBtn onClick={exportCov} />}>
                 <div style={{overflowX:"auto"}}>
                   <table style={tblStyle}>
                     <thead>
