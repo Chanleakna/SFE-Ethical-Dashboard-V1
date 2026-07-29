@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R37';
+const CODE_VERSION = 'R38';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -442,11 +442,23 @@ function setupAutoRefresh() {
 function buildDashboardPayload() {
   const imsSS    = SpreadsheetApp.openById(SHEET_IDS.ims);
   const dailySS  = SpreadsheetApp.openById(SHEET_IDS.daily);
-  const matSS    = SpreadsheetApp.openById(SHEET_IDS.material);
+  // Material master: prefer the current "Master - App For PA Update" file; fall
+  // back to the legacy material sheet if the new one can't be opened/read, so the
+  // dashboard never breaks on a bad id or access issue.
+  const MATERIAL_SHEET_IDS = [
+    '1IFnBS8qNJhdDmODCFNuyQFmi7Iq5VcyQtN7RMmaAvSA',  // Master - App For PA Update (current)
+    SHEET_IDS.material,                               // legacy fallback
+  ];
 
   const daily      = readSheet(dailySS,  TAB_NAMES.daily);
   const targets    = readSheet(imsSS,    TAB_NAMES.targets);
-  const materials  = readSheet(matSS,    TAB_NAMES.materials);
+  let materials = [];
+  for (let mi = 0; mi < MATERIAL_SHEET_IDS.length; mi++) {
+    try {
+      const mrows = readSheet(SpreadsheetApp.openById(MATERIAL_SHEET_IDS[mi]), TAB_NAMES.materials);
+      if (mrows && mrows.length) { materials = mrows; break; }
+    } catch (e) { Logger.log('material read failed for ' + MATERIAL_SHEET_IDS[mi] + ': ' + e.message); }
+  }
   const shared     = readSheet(imsSS,    TAB_NAMES.shared);
   let shopCoverage = [];
   try { shopCoverage = readSheet(imsSS, TAB_NAMES.shopCoverage); }
