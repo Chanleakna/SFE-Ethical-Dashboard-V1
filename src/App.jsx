@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R33";
+const BUILD_TAG = "R34";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1079,6 +1079,22 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
               </React.Fragment>);
             };
             const scMap = {}; C.srScorecards.forEach(c => { scMap[c.code] = c; });
+            const custByCode = {}; (RAW.customers || []).forEach(c => { custByCode[c.c] = c; });
+            // Customer-level cells: NU/L&L aren't per-customer, so show "—".
+            const dashCells = (
+              <React.Fragment>
+                <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb", color:"#d1d5db"}}>—</td>
+                <td style={{...tdStyleR, color:"#d1d5db"}}>—</td>
+                <td style={{...tdStyleR, color:"#d1d5db"}}>—</td>
+              </React.Fragment>
+            );
+            const activeCells = (isActive) => (
+              <React.Fragment>
+                <td style={{...tdStyleR, borderLeft:"1px solid #e5e7eb", color:"#d1d5db"}}>—</td>
+                <td style={{...tdStyleR, color: isActive ? "#7c3aed" : "#d1d5db", fontWeight: isActive ? 700 : 400}}>{isActive ? "1" : "—"}</td>
+                <td style={{...tdStyleR, color:"#d1d5db"}}>—</td>
+              </React.Fragment>
+            );
             const srCov = (s) => {
               const c = scMap[s.code] || {};
               return {
@@ -1170,18 +1186,53 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                             {kc(r.nuT, r.nuA)}
                             {kc(r.llT, r.llA)}
                           </tr>
-                          {expanded[ek] && r.srs.map(s => (
-                            <tr key={s.code} style={{borderTop:"1px solid #f3f4f6", background:"#fff"}}>
-                              <td style={{...tdStyle, paddingLeft:32, fontSize:11}}>
-                                <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:10, marginRight:6}}>{s.code}</span>
-                                {s.name}
-                              </td>
-                              {kc(s.shopT, s.shopA)}
-                              {kc(s.a1T, s.a1A)}
-                              {kc(s.nuT, s.nuA)}
-                              {kc(s.llT, s.llA)}
-                            </tr>
-                          ))}
+                          {expanded[ek] && r.srs.map(s => {
+                            const ck = "covc_" + r.flm + "_" + s.code;
+                            // Customer detail = this SR's Shop Around customers + its Active-1M outlets.
+                            const custMap = {};
+                            (RAW.shopByMonth[month] || []).forEach(x => {
+                              if (x.sr === s.code && !x.isNew && x.c) {
+                                custMap[x.c] = { c: x.c, cn: x.cn || ("Customer " + x.c), shopT: x.t, shopV: x.t > 0 ? x.v : 0, active: false };
+                              }
+                            });
+                            const csMap = active1AM.custSrs || {};
+                            Object.keys(csMap).forEach(cc => {
+                              if ((csMap[cc] || []).indexOf(s.code) >= 0) {
+                                if (!custMap[cc]) custMap[cc] = { c: Number(cc), cn: (custByCode[cc] && custByCode[cc].n) || ("Customer " + cc), shopT: 0, shopV: 0, active: false };
+                                custMap[cc].active = true;
+                              }
+                            });
+                            const custList = Object.keys(custMap).map(k => custMap[k]).sort((a, b) => (b.shopT - a.shopT) || (b.shopV - a.shopV));
+                            return (
+                            <React.Fragment key={s.code}>
+                              <tr style={{borderTop:"1px solid #f3f4f6", background:"#fff", cursor: custList.length ? "pointer" : "default"}}
+                                onClick={() => custList.length && setExpanded(e => ({ ...e, [ck]: !e[ck] }))}>
+                                <td style={{...tdStyle, paddingLeft:32, fontSize:11}}>
+                                  <span style={{display:"inline-block", width:12, color:"#9ca3af"}}>{custList.length ? (expanded[ck] ? "▾" : "▸") : ""}</span>
+                                  <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:10, marginRight:6}}>{s.code}</span>
+                                  {s.name}
+                                  {custList.length > 0 && <span style={{fontSize:10, color:"#9ca3af", marginLeft:6}}>{custList.length} cust</span>}
+                                </td>
+                                {kc(s.shopT, s.shopA)}
+                                {kc(s.a1T, s.a1A)}
+                                {kc(s.nuT, s.nuA)}
+                                {kc(s.llT, s.llA)}
+                              </tr>
+                              {expanded[ck] && custList.map(cu => (
+                                <tr key={cu.c} style={{borderTop:"1px solid #f9fafb", background:"#fafbfc"}}>
+                                  <td style={{...tdStyle, paddingLeft:52, fontSize:10.5}}>
+                                    {cu.cn}
+                                    <span style={{color:"#9ca3af", fontFamily:"monospace", fontSize:9, marginLeft:6}}>{cu.c}</span>
+                                  </td>
+                                  {kc(cu.shopT, cu.shopV)}
+                                  {activeCells(cu.active)}
+                                  {dashCells}
+                                  {dashCells}
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                            );
+                          })}
                         </React.Fragment>
                         );
                       })}
