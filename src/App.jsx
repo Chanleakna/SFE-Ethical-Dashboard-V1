@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R35";
+const BUILD_TAG = "R36";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1060,11 +1060,23 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                           <>
                             <tr style={{background:"#fffef9"}}>
                               <td style={{...tdStyle, paddingLeft:28, fontSize:10.5, color:"#92400e", fontWeight:600}}>
-                                Non-KPI products ({fmt(Math.round(ob.untracked))})
+                                Non-KPI products ({fmt(Math.round(ob.untracked))}) — showing each material + the Sub-Brand the app read
                               </td>
                               <td style={tdStyleR} colSpan={11}></td>
                             </tr>
-                            {untracked.map(x => (
+                            {(ob.mats ? Object.keys(ob.mats).map(k => ob.mats[k]).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,25) : []).map(m => (
+                              <tr key={"m_"+m.code} style={{background:"#fffef9"}}>
+                                <td style={{...tdStyle, paddingLeft:44, fontSize:10.5, color:"#6b7280"}}>
+                                  <span style={{fontFamily:"monospace", fontSize:9, color:"#9ca3af", marginRight:6}}>{m.code}</span>
+                                  {m.name}
+                                  <span style={{marginLeft:8, color:"#b45309"}}>Sub-Brand read: <b>{m.sb}</b></span>
+                                </td>
+                                <td style={tdStyleR}>—</td>
+                                <td style={{...tdStyleR, color:"#92400e"}}>{fmt(m.v)}</td>
+                                <td style={tdStyleR} colSpan={9}></td>
+                              </tr>
+                            ))}
+                            {!ob.mats && untracked.map(x => (
                               <tr key={"u_"+x.name} style={{background:"#fffef9"}}>
                                 <td style={{...tdStyle, paddingLeft:44, fontSize:10.5, color:"#6b7280"}}>{x.name}</td>
                                 <td style={tdStyleR}>—</td>

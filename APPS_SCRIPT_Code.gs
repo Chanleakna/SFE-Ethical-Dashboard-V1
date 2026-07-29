@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R35';
+const CODE_VERSION = 'R36';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -799,6 +799,17 @@ function buildDashboardPayload() {
     if (!mat || !mat.sb || KPIS.indexOf(mat.sb) < 0) {
       const label = (mat && mat.sb) ? mat.sb : (mat ? '(sub-brand blank)' : ('material ' + matCode + ' not in master'));
       bumpOther(monthNum, 'untracked', label, sales);
+      // Record the specific material + the exact Sub-Brand value we read, so it's
+      // clear WHY it isn't tracked (wrong sub-brand text, blank, or not in master).
+      const om = otherByMonth[monthNum];
+      if (!om.mats) om.mats = {};
+      if (!om.mats[matCode]) om.mats[matCode] = {
+        code: matCode,
+        name: r['Material Name'] || '',
+        sb: mat ? (mat.sb || '(blank)') : '(not in master)',
+        v: 0,
+      };
+      om.mats[matCode].v += sales;
       return;
     }
     const cust = Number(r['Customer Code']);
