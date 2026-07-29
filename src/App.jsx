@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R34";
+const BUILD_TAG = "R35";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1038,16 +1038,62 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                     // name didn't match an SR) — counted in Sales, no KPI column to sit in.
                     const other = Math.round(C.salesActualFull - C.totalActual);
                     if (Math.abs(other) < 1) return null;
+                    const ob = (RAW.otherByMonth && RAW.otherByMonth[month]) || null;
+                    const topList = (map) => Object.keys(map || {})
+                      .map(k => ({ name: k, v: Math.round(map[k]) }))
+                      .sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 15);
+                    const untracked = topList(ob && ob.untrackedBySb);
+                    const unmatched = topList(ob && ob.unmatchedBySr);
                     return (
                       <>
-                        <tr style={{background:"#fffdf5"}}>
+                        <tr style={{background:"#fffdf5", cursor: ob ? "pointer" : "default"}}
+                          onClick={() => ob && setExpanded(e => ({ ...e, otherEthical: !e.otherEthical }))}>
                           <td style={{...tdStyle, color:"#92400e", fontStyle:"italic"}}>
-                            ↳ Other Ethical (non-KPI products / unmatched rep)
+                            {ob && <span style={{marginRight:4}}>{expanded.otherEthical ? "▾" : "▸"}</span>}
+                            ↳ Other Ethical (non-KPI products / unmatched rep){ob ? " — click to see what" : ""}
                           </td>
                           <td style={tdStyleR}>—</td>
                           <td style={{...tdStyleR, color:"#92400e"}}>{fmt(other)}</td>
                           <td style={tdStyleR} colSpan={9}></td>
                         </tr>
+                        {ob && expanded.otherEthical && (
+                          <>
+                            <tr style={{background:"#fffef9"}}>
+                              <td style={{...tdStyle, paddingLeft:28, fontSize:10.5, color:"#92400e", fontWeight:600}}>
+                                Non-KPI products ({fmt(Math.round(ob.untracked))})
+                              </td>
+                              <td style={tdStyleR} colSpan={11}></td>
+                            </tr>
+                            {untracked.map(x => (
+                              <tr key={"u_"+x.name} style={{background:"#fffef9"}}>
+                                <td style={{...tdStyle, paddingLeft:44, fontSize:10.5, color:"#6b7280"}}>{x.name}</td>
+                                <td style={tdStyleR}>—</td>
+                                <td style={{...tdStyleR, color:"#92400e"}}>{fmt(x.v)}</td>
+                                <td style={tdStyleR} colSpan={9}></td>
+                              </tr>
+                            ))}
+                            <tr style={{background:"#fffef9"}}>
+                              <td style={{...tdStyle, paddingLeft:28, fontSize:10.5, color:"#92400e", fontWeight:600}}>
+                                Unmatched rep ({fmt(Math.round(ob.unmatchedSr))})
+                              </td>
+                              <td style={tdStyleR} colSpan={11}></td>
+                            </tr>
+                            {unmatched.length ? unmatched.map(x => (
+                              <tr key={"r_"+x.name} style={{background:"#fffef9"}}>
+                                <td style={{...tdStyle, paddingLeft:44, fontSize:10.5, color:"#6b7280"}}>{x.name || "(blank rep)"}</td>
+                                <td style={tdStyleR}>—</td>
+                                <td style={{...tdStyleR, color:"#92400e"}}>{fmt(x.v)}</td>
+                                <td style={tdStyleR} colSpan={9}></td>
+                              </tr>
+                            )) : (
+                              <tr style={{background:"#fffef9"}}>
+                                <td style={{...tdStyle, paddingLeft:44, fontSize:10.5, color:"#9ca3af"}} colSpan={12}>
+                                  None — all of "Other" is non-KPI products.
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        )}
                         <tr style={{background:"#f0fdf4", fontWeight:700}}>
                           <td style={{...tdStyle, color:"#166534"}}>= SALES (full Ethical, ties to headline)</td>
                           <td style={tdStyleR}>{fmt(C.totalTarget)}</td>
