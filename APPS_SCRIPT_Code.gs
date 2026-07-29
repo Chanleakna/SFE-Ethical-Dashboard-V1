@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R36';
+const CODE_VERSION = 'R37';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -466,13 +466,30 @@ function buildDashboardPayload() {
   try { llTarget  = readSheet(imsSS, TAB_NAMES.llTarget); }      catch (e) { Logger.log('Note: Target-L&L tab not found'); }
   try { llActual  = readSheet(imsSS, TAB_NAMES.llActual); }      catch (e) { Logger.log('Note: Actual-L&L tab not found'); }
 
+  const KPIS = ['SM','SIM','STC','PED PWD','PED RPB','ENS PWD','ENS RPB','GLU PWD','GLU RPB','PRO'];
   const matMap = {};
+  // Normalize the Sub-Brand cell: TRIM whitespace and collapse inner double spaces,
+  // and match KPI names case-insensitively — so "ENS PWD " or "ens pwd" still maps.
+  const normSubBrand = function (v) {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim().replace(/\s+/g, ' ');
+    if (s === '') return null;
+    for (let i = 0; i < KPIS.length; i++) if (KPIS[i].toUpperCase() === s.toUpperCase()) return KPIS[i];
+    return s; // keep the raw (trimmed) value so it still shows in diagnostics
+  };
   materials.forEach(r => {
-    if (r['Material Code']) {
-      matMap[Number(r['Material Code'])] = {
-        sb: r['Sub-Brand'] || null,
-        cat: r['Category'] || null,
-      };
+    const code = Number(r['Material Code']);
+    if (!code) return;
+    const sb = normSubBrand(r['Sub-Brand']);
+    const cat = r['Category'] ? String(r['Category']).trim() : null;
+    const cur = matMap[code];
+    // When the same Material Code appears on more than one row, PREFER the row that
+    // actually has a tracked sub-brand, so a blank or duplicate row can't wipe out
+    // a valid mapping regardless of row order.
+    const newTracked = sb && KPIS.indexOf(sb) >= 0;
+    const curTracked = cur && cur.sb && KPIS.indexOf(cur.sb) >= 0;
+    if (!cur || (newTracked && !curTracked) || (!cur.sb && sb)) {
+      matMap[code] = { sb: sb, cat: cat };
     }
   });
 
@@ -536,7 +553,7 @@ function buildDashboardPayload() {
   });
   Logger.log('HCP_TO_HCO map size: ' + Object.keys(HCP_TO_HCO).length);
 
-  const KPIS = ['SM','SIM','STC','PED PWD','PED RPB','ENS PWD','ENS RPB','GLU PWD','GLU RPB','PRO'];
+  // (KPIS is defined earlier, before matMap, so material normalization can use it.)
   // Sub-brand -> National-Account category (PND vs MND). Used to credit an active
   // outlet to its assigned PND rep for PND-category sales and its assigned MND rep
   // for MND-category sales (the "NA Name" assignment table).
