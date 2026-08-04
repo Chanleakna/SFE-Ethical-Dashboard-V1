@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R39";
+const BUILD_TAG = "R40";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
