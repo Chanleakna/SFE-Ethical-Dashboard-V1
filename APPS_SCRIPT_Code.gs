@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R39';
+const CODE_VERSION = 'R40';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -442,24 +442,15 @@ function setupAutoRefresh() {
 function buildDashboardPayload() {
   const imsSS    = SpreadsheetApp.openById(SHEET_IDS.ims);
   const dailySS  = SpreadsheetApp.openById(SHEET_IDS.daily);
-  // Material master: prefer the current "Master - App For PA Update" file; fall
-  // back to the legacy material sheet if the new one can't be opened/read, so the
-  // dashboard never breaks on a bad id or access issue.
-  const MATERIAL_SHEET_IDS = [
-    '1IFnBS8qNJhdDmODCFNuyQFmi7Iq5VcyQtN7RMmaAvSA',  // Master - App For PA Update (current)
-    SHEET_IDS.material,                               // legacy fallback
-  ];
+  const matSS    = SpreadsheetApp.openById(SHEET_IDS.material);
 
   const daily      = readSheet(dailySS,  TAB_NAMES.daily);
   const targets    = readSheet(imsSS,    TAB_NAMES.targets);
+  // Reverted to the legacy material sheet only — reading a second external file was
+  // implicated in a backend failure. Re-added safely once access is confirmed.
   let materials = [];
-  let materialSourceId = null;
-  for (let mi = 0; mi < MATERIAL_SHEET_IDS.length; mi++) {
-    try {
-      const mrows = readSheet(SpreadsheetApp.openById(MATERIAL_SHEET_IDS[mi]), TAB_NAMES.materials);
-      if (mrows && mrows.length) { materials = mrows; materialSourceId = MATERIAL_SHEET_IDS[mi]; break; }
-    } catch (e) { Logger.log('material read failed for ' + MATERIAL_SHEET_IDS[mi] + ': ' + e.message); }
-  }
+  try { materials = readSheet(matSS, TAB_NAMES.materials); }
+  catch (e) { Logger.log('material read failed: ' + e.message); }
   const shared     = readSheet(imsSS,    TAB_NAMES.shared);
   let shopCoverage = [];
   try { shopCoverage = readSheet(imsSS, TAB_NAMES.shopCoverage); }
@@ -1627,7 +1618,6 @@ function buildDashboardPayload() {
     srTeam: srTeam,
     flmCatReps: flmCatReps,
     otherByMonth: otherByMonth,
-    materialSource: { id: materialSourceId, rows: materials.length },
     codeVersion: CODE_VERSION,
     generatedAt: new Date().toISOString(),
   };
@@ -1682,7 +1672,6 @@ function debugNaAssign() {
   // per month. This is why the two totals differ — nothing is lost.
   try {
     const data = getDashboardData();
-    out.materialSource = (data && data.materialSource) || null;
     const obm = (data && data.otherByMonth) || {};
     const topN = function (m) {
       return Object.keys(m).map(function (k) { return { name: k, v: Math.round(m[k]) }; })
