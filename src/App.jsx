@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R41";
+const BUILD_TAG = "R42";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -754,6 +754,18 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
                   style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
                     background: ok ? "#dcfce7" : "#fef3c7", color: ok ? "#166534" : "#92400e" }}>
                   data {dv || "?"} {ok ? "✓" : "⟳ updating…"}
+                </span>
+              );
+            })()}
+            {(() => {
+              const ms = RAW.materialSource;
+              if (!ms) return null;
+              const current = ms.id === "1IFnBS8qNJhdDmODCFNuyQFmi7Iq5VcyQtN7RMmaAvSA";
+              return (
+                <span title={current ? "Reading your current master file (Master - App For PA Update)" : "Reading the LEGACY material file — the current file couldn't be opened. Share it with the script account, then clearCache."}
+                  style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontWeight: 600,
+                    background: current ? "#dcfce7" : "#fee2e2", color: current ? "#166534" : "#b91c1c" }}>
+                  materials: {current ? "current" : "LEGACY"} · {ms.rows || 0} rows
                 </span>
               );
             })()}
