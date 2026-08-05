@@ -10,12 +10,12 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R42";
+const BUILD_TAG = "R43";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
 // sheet and the chance of catching a mid-rebuild partial read.
-const REFRESH_INTERVAL = 300;
+const REFRESH_INTERVAL = 120;
 // localStorage key for the last-good payload (instant open while refetching)
 const CACHE_KEY = "sfe_dashboard_payload_v1";
 
@@ -3659,7 +3659,7 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
 
       <div style={{marginTop:14, fontSize:10, color:"#9ca3af", textAlign:"center"}}>
         Source: Daily Sales · Target Set (Ethical) · Material Code Lookup ·
-        {RAW.srs.length} SRs · {RAW.flms.length} FLMs · {RAW.customers.length} customers · auto-refresh 5s
+        {RAW.srs.length} SRs · {RAW.flms.length} FLMs · {RAW.customers.length} customers · auto-refresh 2m · click ↻ Refresh for instant
       </div>
 
       <style>{`@keyframes pulse { 0%,100% {opacity:1} 50% {opacity:.4} }`}</style>
