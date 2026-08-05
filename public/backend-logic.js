@@ -54,7 +54,7 @@ const CACHE_SECONDS = 21600; // 6h — data changes once a day (morning import c
 // ?action=health — so you can instantly tell whether your Apps Script redeploy
 // actually went live. If the dashboard's "data" tag doesn't match this, your
 // New-version deploy didn't take (or the cache wasn't cleared).
-const CODE_VERSION = 'R40';
+const CODE_VERSION = 'R41';
 
 // === Daily email import (auto-ingest the morning sales email) ===
 // NOTE: Apps Script can only read GMAIL (the Google account that owns this
@@ -442,15 +442,25 @@ function setupAutoRefresh() {
 function buildDashboardPayload() {
   const imsSS    = SpreadsheetApp.openById(SHEET_IDS.ims);
   const dailySS  = SpreadsheetApp.openById(SHEET_IDS.daily);
-  const matSS    = SpreadsheetApp.openById(SHEET_IDS.material);
 
   const daily      = readSheet(dailySS,  TAB_NAMES.daily);
   const targets    = readSheet(imsSS,    TAB_NAMES.targets);
-  // Reverted to the legacy material sheet only — reading a second external file was
-  // implicated in a backend failure. Re-added safely once access is confirmed.
+  // Material master: read the current "Master - App For PA Update" file first, then
+  // fall back to the legacy sheet. Each open/read is isolated in try/catch so an
+  // access issue can NEVER surface an error to the web app.
+  const MATERIAL_SHEET_IDS = [
+    '1IFnBS8qNJhdDmODCFNuyQFmi7Iq5VcyQtN7RMmaAvSA',  // Master - App For PA Update (current)
+    SHEET_IDS.material,                               // legacy fallback
+  ];
   let materials = [];
-  try { materials = readSheet(matSS, TAB_NAMES.materials); }
-  catch (e) { Logger.log('material read failed: ' + e.message); }
+  let materialSourceId = null;
+  for (let mi = 0; mi < MATERIAL_SHEET_IDS.length; mi++) {
+    try {
+      const mss = SpreadsheetApp.openById(MATERIAL_SHEET_IDS[mi]);
+      const mrows = readSheet(mss, TAB_NAMES.materials);
+      if (mrows && mrows.length) { materials = mrows; materialSourceId = MATERIAL_SHEET_IDS[mi]; break; }
+    } catch (e) { Logger.log('material read failed for ' + MATERIAL_SHEET_IDS[mi] + ': ' + e.message); }
+  }
   const shared     = readSheet(imsSS,    TAB_NAMES.shared);
   let shopCoverage = [];
   try { shopCoverage = readSheet(imsSS, TAB_NAMES.shopCoverage); }
@@ -1618,6 +1628,7 @@ function buildDashboardPayload() {
     srTeam: srTeam,
     flmCatReps: flmCatReps,
     otherByMonth: otherByMonth,
+    materialSource: { id: materialSourceId, rows: materials.length },
     codeVersion: CODE_VERSION,
     generatedAt: new Date().toISOString(),
   };
