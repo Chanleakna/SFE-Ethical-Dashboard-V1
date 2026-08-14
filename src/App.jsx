@@ -10,7 +10,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyXkZNFHARUMpbJ1i47BV5D
 
 // Version tag shown in the header. Keep in step with CODE_VERSION in
 // APPS_SCRIPT_Code.gs — the header shows both so a stale backend is obvious.
-const BUILD_TAG = "R43";
+const BUILD_TAG = "R44";
 
 // Refresh interval for live data (seconds). Daily-sales data doesn't change by
 // the minute; a longer cadence keeps it live while reducing load on the slow
@@ -1320,69 +1320,6 @@ function Dashboard({ user, raw, onLogout, onRefresh, refreshing }) {
             );
           })()}
 
-          <CoverageRanking
-            title="FLM Coverage Rating (Shop Around · Active 3-mo · New Listing · NU)"
-            rows={C.flmCoverage.map(r => ({
-              key: r.flm, name: r.flm, sub: null,
-              kpis: [
-                { label: "Shop", actual: r.shopA, target: r.shopT },
-                { label: "Active", actual: r.activeA, target: r.activeT },
-                { label: "New", actual: r.newA, target: r.newT },
-                { label: "NU", actual: r.leadA, target: r.leadT },
-              ],
-            }))}
-            onExport={() => {
-              const rows = C.flmCoverage.map(r => ({
-                "FLM": r.flm,
-                "Shop Target": Math.round(r.shopT),
-                "Shop Actual": Math.round(r.shopA),
-                "Shop %": r.shopT > 0 ? ((r.shopA/r.shopT)*100).toFixed(0) + "%" : "—",
-                "Active Target": r.activeT,
-                "Active Actual": r.activeA,
-                "Active %": r.activeT > 0 ? ((r.activeA/r.activeT)*100).toFixed(0) + "%" : "—",
-                "New Target": r.newT,
-                "New Actual": r.newA,
-                "New %": r.newT > 0 ? ((r.newA/r.newT)*100).toFixed(0) + "%" : "—",
-                "NU Target": r.leadT,
-                "NU Actual": r.leadA,
-                "NU %": r.leadT > 0 ? ((r.leadA/r.leadT)*100).toFixed(0) + "%" : "—",
-              }));
-              exportToExcel(rows, `FLMCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "FLM Coverage");
-            }}
-          />
-
-          <CoverageRanking
-            title="SR Coverage Rating (Shop Around · Active 3-mo · New Listing · NU)"
-            rows={C.srScorecards.map(r => ({
-              key: r.code, name: r.name, sub: r.flm,
-              kpis: [
-                { label: "Shop", actual: r.shopActual, target: r.shopTarget },
-                { label: "Active", actual: r.activeActual, target: r.activeTarget },
-                { label: "New", actual: r.newActual, target: r.newTarget },
-                { label: "NU", actual: r.leadActual, target: r.leadTarget },
-              ],
-            }))}
-            onExport={() => {
-              const rows = C.srScorecards.map(r => ({
-                "SR Code": r.code,
-                "SR Name": r.name,
-                "FLM": r.flm,
-                "Shop Target": Math.round(r.shopTarget),
-                "Shop Actual": Math.round(r.shopActual),
-                "Shop %": r.shopTarget > 0 ? ((r.shopActual/r.shopTarget)*100).toFixed(0) + "%" : "—",
-                "Active Target": r.activeTarget,
-                "Active Actual": r.activeActual,
-                "Active %": r.activeTarget > 0 ? ((r.activeActual/r.activeTarget)*100).toFixed(0) + "%" : "—",
-                "New Target": r.newTarget,
-                "New Actual": r.newActual,
-                "New %": r.newTarget > 0 ? ((r.newActual/r.newTarget)*100).toFixed(0) + "%" : "—",
-                "NU Target": r.leadTarget,
-                "NU Actual": r.leadActual,
-                "NU %": r.leadTarget > 0 ? ((r.leadActual/r.leadTarget)*100).toFixed(0) + "%" : "—",
-              }));
-              exportToExcel(rows, `SRCoverage_${MONTH_NAMES[month-1]}${year}.xlsx`, "SR Coverage");
-            }}
-          />
         </>
       )}
 
